@@ -1,13 +1,16 @@
 # config/sources.yaml
 # =============================================================================
 # Single source of truth for all scraper configuration.
-# 
+#
 # Rules:
 #   - Never hardcode URLs, limits, or labels in scraper files
 #   - To disable a source: set active: false
 #   - To add a source: add a block here + write one scraper class
 #   - max_pages: null means paginate until empty page or cutoff date
 #   - Labels verified directly from each source's methodology page
+#   - labels_produced shows current known labels but scraper catches
+#     all verdicts automatically — if a source publishes a new
+#     verdict type in future, label_mapper handles it
 # =============================================================================
 
 sources:
@@ -28,24 +31,27 @@ sources:
     start_page: 1
     max_pages: null              # paginate until empty page or cutoff date
     active: true
-    rate_limit_seconds: 2        # wait between page requests
-    retry_attempts: 3            # retry failed requests
-    retry_backoff_seconds: 5     # wait between retries
+    rate_limit_seconds: 2
+    retry_attempts: 3
+    retry_backoff_seconds: 5
     language: "ne"
     scraper_class: "TechpanaScraper"
+    source_type: "fact_checker"
 
-    # Verified labels from: techpana.com/factcheck/ methodology section
-    # Format: raw Nepali text as it appears on the site
+    # Verified labels from: techpana.com/factcheck/ methodology page
+    # labels_produced reflects what is currently known to be published
+    # scraper catches ALL verdicts regardless — label_mapper handles mapping
     labels:
       raw:
-        - "सही"                  # True      → NepFakeV2 label 0 (REAL)
-        - "अपुष्ट"               # Unverified → NepFakeV2 label 3 (UNVERIFIED)
-        - "भ्रामक"               # Misleading → NepFakeV2 label 1 (FALSE_MISLEADING)
-        - "मिथ्या"               # False      → NepFakeV2 label 1 (FALSE_MISLEADING)
+        - "सही"                  # True        → label 0 (if published)
+        - "अपुष्ट"               # Unverified  → label 2
+        - "भ्रामक"               # Misleading  → label 1
+        - "मिथ्या"               # False       → label 1
+      labels_produced: [0, 1, 2] # 0 caught automatically if published
       note: >
-        'सही' (True) verdicts are rarely published.
-        'भ्रामक' and 'मिथ्या' both map to label 1.
-        Verdict appears as a structured tag in article HTML.
+        'सही' (True) verdicts rarely published but caught automatically
+        if they appear. 'भ्रामक' and 'मिथ्या' both map to label 1.
+        Verdict appears as structured tag in article HTML.
 
   # ---------------------------------------------------------------------------
   # SOURCE 2: NepalCheck.org
@@ -67,23 +73,25 @@ sources:
     rate_limit_seconds: 2
     retry_attempts: 3
     retry_backoff_seconds: 5
-    language: "ne"               # bilingual but Nepali preferred
+    language: "ne"
     scraper_class: "NepalcheckScraper"
+    source_type: "fact_checker"
 
     # Verified labels from: nepalcheck.org/about/
-    # IMPORTANT: NepalCheck writes verdicts in English prose inside
-    # the article body — not as a structured HTML tag.
-    # label_mapper must extract verdict from article text.
+    # IMPORTANT: verdict written in English prose inside article body
+    # not as structured HTML tag — label_mapper uses text parsing
     labels:
       raw:
-        - "misleading"           # → NepFakeV2 label 1 (FALSE_MISLEADING)
-        - "false"                # → NepFakeV2 label 1 (FALSE_MISLEADING)
-        - "half-truth"           # → NepFakeV2 label 1 (FALSE_MISLEADING)
-        - "true"                 # → NepFakeV2 label 0 (REAL) — rarely published
+        - "misleading"           # → label 1
+        - "false"                # → label 1
+        - "half-truth"           # → label 1
+        - "true"                 # → label 0 (if published)
+        - "unverified"           # → label 2 (if published)
+      labels_produced: [0, 1, 2] # all caught automatically if published
       note: >
-        Verdict is written in English prose, not a structured tag.
+        Verdict written in English prose, not a structured tag.
         Most common verdict is 'misleading'.
-        'true' verdicts are rarely published.
+        All verdicts caught automatically by label_mapper.
         Extraction requires text parsing of article body.
 
   # ---------------------------------------------------------------------------
@@ -107,28 +115,92 @@ sources:
     retry_backoff_seconds: 5
     language: "ne"
     scraper_class: "NepalfactcheckScraper"
+    source_type: "fact_checker"
 
     # Verified labels from: nepalfactcheck.org/faqs/
     # Same meaning as TechPana but appends 'सूचना' (information)
-    # e.g. "भ्रामक" → "भ्रामक सूचना"
+    # Explicitly publishes 'सही सूचना' when public confusion exists
     labels:
       raw:
-        - "सही सूचना"            # True        → NepFakeV2 label 0 (REAL)
-        - "अपुष्ट सूचना"         # Unverified  → NepFakeV2 label 3 (UNVERIFIED)
-        - "भ्रामक सूचना"         # Misleading  → NepFakeV2 label 1 (FALSE_MISLEADING)
-        - "मिथ्या सूचना"         # False       → NepFakeV2 label 1 (FALSE_MISLEADING)
+        - "सही सूचना"            # True        → label 0
+        - "अपुष्ट सूचना"         # Unverified  → label 2
+        - "भ्रामक सूचना"         # Misleading  → label 1
+        - "मिथ्या सूचना"         # False       → label 1
+      labels_produced: [0, 1, 2]
       note: >
-        'सही सूचना' (True) verdicts are rarely published per their FAQ.
+        Explicitly publishes 'सही सूचना' when factual claim
+        has caused public confusion — confirmed in their FAQ.
         'भ्रामक सूचना' and 'मिथ्या सूचना' both map to label 1.
-        Verdict appears as a structured tag in article HTML.
+        All verdicts caught automatically if published.
 
   # ---------------------------------------------------------------------------
-  # SOURCE 4: MisinfoNepal — PARKED
-  # Reason:   About page confirms news aggregator, not fact-checker.
-  #           "We collect stories from major Nepali outlets"
-  #           No documented verification methodology found.
-  #           DO NOT activate until methodology is verified.
-  # Notes:    See pending/misinfonepal_notes.md
+  # SOURCE 4: BBC Nepali
+  # Type:     Established newspaper — Label 0 source
+  # Active:   YES
+  # Language: Nepali
+  # Label:    0 only (REAL) — presumed factual by source credibility
+  # Note:     International editorial standards applied to Nepal coverage
+  # ---------------------------------------------------------------------------
+  bbc_nepali:
+    name: "bbc_nepali"
+    display_name: "BBC Nepali"
+    base_url: "https://www.bbc.com/nepali"
+    list_url_template: "https://www.bbc.com/nepali/articles?page={page}"
+    start_page: 1
+    max_pages: null
+    active: true
+    rate_limit_seconds: 3        # be more polite with BBC
+    retry_attempts: 3
+    retry_backoff_seconds: 5
+    language: "ne"
+    scraper_class: "BBCNepaliScraper"
+    source_type: "newspaper"
+
+    labels:
+      raw: []                    # no verdict labels — label assigned by source type
+      labels_produced: [0]
+      label_basis: "source_credibility"
+      note: >
+        Label 0 assigned by source credibility, not individual
+        claim verification. Document as limitation in paper.
+        Scrape news articles only — exclude opinion pieces.
+
+  # ---------------------------------------------------------------------------
+  # SOURCE 5: Kantipur
+  # Type:     Established newspaper — Label 0 source
+  # Active:   YES
+  # Language: Nepali
+  # Label:    0 only (REAL) — presumed factual by source credibility
+  # Note:     Nepal's oldest and most established newspaper
+  # ---------------------------------------------------------------------------
+  kantipur:
+    name: "kantipur"
+    display_name: "Kantipur"
+    base_url: "https://ekantipur.com"
+    list_url_template: "https://ekantipur.com/news?page={page}"
+    start_page: 1
+    max_pages: null
+    active: true
+    rate_limit_seconds: 2
+    retry_attempts: 3
+    retry_backoff_seconds: 5
+    language: "ne"
+    scraper_class: "KantipurScraper"
+    source_type: "newspaper"
+
+    labels:
+      raw: []                    # no verdict labels — label assigned by source type
+      labels_produced: [0]
+      label_basis: "source_credibility"
+      note: >
+        Label 0 assigned by source credibility, not individual
+        claim verification. Document as limitation in paper.
+        Scrape news articles only — exclude opinion pieces.
+
+  # ---------------------------------------------------------------------------
+  # SOURCE 6: MisinfoNepal — PERMANENTLY CLOSED
+  # Reason:   Owner confirmed scraping not permitted (contacted 30 Aug 2026)
+  # Decision: Removed from all planning
   # ---------------------------------------------------------------------------
   misinfonepal:
     name: "misinfonepal"
@@ -137,16 +209,16 @@ sources:
     list_url_template: null
     start_page: null
     max_pages: null
-    active: false                # DO NOT set to true without methodology verification
-    rate_limit_seconds: 3
-    retry_attempts: 3
-    retry_backoff_seconds: 5
+    active: false                # PERMANENTLY CLOSED — do not activate
+    rate_limit_seconds: null
+    retry_attempts: null
+    retry_backoff_seconds: null
     language: "ne"
-    scraper_class: "MisinfonepalScraper"
+    scraper_class: null
+    source_type: null
     labels:
       raw: []
+      labels_produced: []
       note: >
-        Labels unknown. Site blocked bot requests during investigation.
-        Potential labels: VERIFIED FACTUAL, MISLEADING,
-        OPINION AS FACT, UNVERIFIED.
-        Investigate before activating.
+        Owner confirmed scraping not permitted on 30 Aug 2026.
+        Permanently closed. See pending/misinfonepal_notes.md.
