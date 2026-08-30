@@ -1,0 +1,152 @@
+# config/sources.yaml
+# =============================================================================
+# Single source of truth for all scraper configuration.
+# 
+# Rules:
+#   - Never hardcode URLs, limits, or labels in scraper files
+#   - To disable a source: set active: false
+#   - To add a source: add a block here + write one scraper class
+#   - max_pages: null means paginate until empty page or cutoff date
+#   - Labels verified directly from each source's methodology page
+# =============================================================================
+
+sources:
+
+  # ---------------------------------------------------------------------------
+  # SOURCE 1: TechPana Factcheck
+  # Type:     IFCN-certified professional fact-checker
+  # Founded:  22 Feb 2025
+  # Active:   YES — publishing Aug 2026
+  # Language: Nepali (Devanagari)
+  # Labels:   Verified from techpana.com/factcheck/ methodology page
+  # ---------------------------------------------------------------------------
+  techpana:
+    name: "techpana"
+    display_name: "TechPana Factcheck"
+    base_url: "https://techpana.com/factcheck/"
+    list_url_template: "https://techpana.com/factcheck/?tab=nepali&page={page}"
+    start_page: 1
+    max_pages: null              # paginate until empty page or cutoff date
+    active: true
+    rate_limit_seconds: 2        # wait between page requests
+    retry_attempts: 3            # retry failed requests
+    retry_backoff_seconds: 5     # wait between retries
+    language: "ne"
+    scraper_class: "TechpanaScraper"
+
+    # Verified labels from: techpana.com/factcheck/ methodology section
+    # Format: raw Nepali text as it appears on the site
+    labels:
+      raw:
+        - "सही"                  # True      → NepFakeV2 label 0 (REAL)
+        - "अपुष्ट"               # Unverified → NepFakeV2 label 3 (UNVERIFIED)
+        - "भ्रामक"               # Misleading → NepFakeV2 label 1 (FALSE_MISLEADING)
+        - "मिथ्या"               # False      → NepFakeV2 label 1 (FALSE_MISLEADING)
+      note: >
+        'सही' (True) verdicts are rarely published.
+        'भ्रामक' and 'मिथ्या' both map to label 1.
+        Verdict appears as a structured tag in article HTML.
+
+  # ---------------------------------------------------------------------------
+  # SOURCE 2: NepalCheck.org
+  # Type:     Professional fact-checker
+  # Founded:  August 2022
+  # Founder:  Deepak Adhikari (ex-AFP, trained TechPana team)
+  # Active:   YES — publishing Aug 2026
+  # Language: Bilingual (Nepali + English)
+  # Labels:   Verified from nepalcheck.org/about/
+  # ---------------------------------------------------------------------------
+  nepalcheck:
+    name: "nepalcheck"
+    display_name: "NepalCheck"
+    base_url: "https://nepalcheck.org/factcheck/"
+    list_url_template: "https://nepalcheck.org/factcheck/page/{page}/"
+    start_page: 1
+    max_pages: null              # paginate until empty page or cutoff date
+    active: true
+    rate_limit_seconds: 2
+    retry_attempts: 3
+    retry_backoff_seconds: 5
+    language: "ne"               # bilingual but Nepali preferred
+    scraper_class: "NepalcheckScraper"
+
+    # Verified labels from: nepalcheck.org/about/
+    # IMPORTANT: NepalCheck writes verdicts in English prose inside
+    # the article body — not as a structured HTML tag.
+    # label_mapper must extract verdict from article text.
+    labels:
+      raw:
+        - "misleading"           # → NepFakeV2 label 1 (FALSE_MISLEADING)
+        - "false"                # → NepFakeV2 label 1 (FALSE_MISLEADING)
+        - "half-truth"           # → NepFakeV2 label 1 (FALSE_MISLEADING)
+        - "true"                 # → NepFakeV2 label 0 (REAL) — rarely published
+      note: >
+        Verdict is written in English prose, not a structured tag.
+        Most common verdict is 'misleading'.
+        'true' verdicts are rarely published.
+        Extraction requires text parsing of article body.
+
+  # ---------------------------------------------------------------------------
+  # SOURCE 3: NepalFactCheck.org
+  # Type:     Non-profit fact-checker (CMR-Nepal + MySansar.com)
+  # Founded:  April 2020 (International Fact-Checking Day)
+  # Active:   YES — publishing Aug 2026 (multiple per week)
+  # Language: Nepali ONLY (by design)
+  # Labels:   Verified from nepalfactcheck.org/faqs/
+  # ---------------------------------------------------------------------------
+  nepalfactcheck:
+    name: "nepalfactcheck"
+    display_name: "Nepal Factcheck"
+    base_url: "https://nepalfactcheck.org/"
+    list_url_template: "https://nepalfactcheck.org/page/{page}/"
+    start_page: 1
+    max_pages: null              # paginate until empty page or cutoff date
+    active: true
+    rate_limit_seconds: 2
+    retry_attempts: 3
+    retry_backoff_seconds: 5
+    language: "ne"
+    scraper_class: "NepalfactcheckScraper"
+
+    # Verified labels from: nepalfactcheck.org/faqs/
+    # Same meaning as TechPana but appends 'सूचना' (information)
+    # e.g. "भ्रामक" → "भ्रामक सूचना"
+    labels:
+      raw:
+        - "सही सूचना"            # True        → NepFakeV2 label 0 (REAL)
+        - "अपुष्ट सूचना"         # Unverified  → NepFakeV2 label 3 (UNVERIFIED)
+        - "भ्रामक सूचना"         # Misleading  → NepFakeV2 label 1 (FALSE_MISLEADING)
+        - "मिथ्या सूचना"         # False       → NepFakeV2 label 1 (FALSE_MISLEADING)
+      note: >
+        'सही सूचना' (True) verdicts are rarely published per their FAQ.
+        'भ्रामक सूचना' and 'मिथ्या सूचना' both map to label 1.
+        Verdict appears as a structured tag in article HTML.
+
+  # ---------------------------------------------------------------------------
+  # SOURCE 4: MisinfoNepal — PARKED
+  # Reason:   About page confirms news aggregator, not fact-checker.
+  #           "We collect stories from major Nepali outlets"
+  #           No documented verification methodology found.
+  #           DO NOT activate until methodology is verified.
+  # Notes:    See pending/misinfonepal_notes.md
+  # ---------------------------------------------------------------------------
+  misinfonepal:
+    name: "misinfonepal"
+    display_name: "Misinformation Nepal"
+    base_url: "https://misinfonepal.com/"
+    list_url_template: null
+    start_page: null
+    max_pages: null
+    active: false                # DO NOT set to true without methodology verification
+    rate_limit_seconds: 3
+    retry_attempts: 3
+    retry_backoff_seconds: 5
+    language: "ne"
+    scraper_class: "MisinfonepalScraper"
+    labels:
+      raw: []
+      note: >
+        Labels unknown. Site blocked bot requests during investigation.
+        Potential labels: VERIFIED FACTUAL, MISLEADING,
+        OPINION AS FACT, UNVERIFIED.
+        Investigate before activating.
