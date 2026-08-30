@@ -1,0 +1,20 @@
+# HTTP & scraping
+requests==2.34.2
+beautifulsoup4==4.15.0
+lxml==6.1.2
+
+# Date parsing
+python-dateutil==2.9.0.post0
+
+# Config
+pyyaml==6.0.3
+
+# Progress bars (useful during manual runs)
+tqdm==4.70.0
+
+# Data export
+pandas==3.0.5
+
+# Testing
+pytest==9.1.1
+pytest-cov==7.1.0
