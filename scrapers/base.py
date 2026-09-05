@@ -1,21 +1,16 @@
 # scrapers/base.py
 # =============================================================================
 # BaseScraper — parent class for all NepFakeV2 scrapers.
-# Every source-specific scraper inherits from this class.
 #
-# Provides:
-#   - Rate limiting between requests
-#   - Retry logic with exponential backoff
-#   - Incremental scraping via date cutoff
-#   - Raw JSON saving with dated filenames
-#   - Structured logging per scraper
-#   - Shared HTTP session with correct headers
-#   - WordPress redirect loop detection
+# Incremental strategy:
+#   - Tracks last_published_date per source in last_run.json
+#   - Each article has published_date_iso for cutoff comparison
+#   - Cutoff: article.published_date_iso <= last_published_date → STOP
+#   - After run: max(published_date_iso) saved as new last_published_date
 #
-# Usage:
-#   from scrapers.base import BaseScraper
-#   class TechpanaScraper(BaseScraper):
-#       def scrape(self): ...
+# Stage 1 principle:
+#   - Store everything as-is from website
+#   - published_date_iso is internal only — NOT stored in raw JSON
 # =============================================================================
 
 import json
@@ -40,26 +35,15 @@ from config.settings import (
 from schema.schema import RawArticle
 
 
-# =============================================================================
-# BASE SCRAPER
-# =============================================================================
-
 class BaseScraper(ABC):
     """
     Abstract base class for all NepFakeV2 scrapers.
     Subclasses must implement:
-        - scrape_article(url) → RawArticle
         - get_article_links(page_url) → list[str]
-        - get_article_date(url) → str
+        - scrape_article(url) → RawArticle
     """
 
     def __init__(self, source_name: str):
-        """
-        Initialize scraper for a given source.
-
-        Args:
-            source_name: Key from sources.yaml e.g. "techpana"
-        """
         if source_name not in ACTIVE_SOURCES:
             raise ValueError(
                 f"Source '{source_name}' not found in active sources. "
@@ -71,13 +55,15 @@ class BaseScraper(ABC):
         self.logger = logging.getLogger(f"nepfakev2.{source_name}")
         self.raw_dir = RAW_DIRS[source_name]
         self.session = self._build_session()
-        self.cutoff_date = self._get_cutoff_date()
         self.articles_scraped = 0
         self.articles_skipped = 0
 
+        # Load cutoff from last_run.json
+        self.last_published_date = self._load_last_published_date()
+
         self.logger.info(
             f"Initialized {source_name} scraper — "
-            f"cutoff date: {self.cutoff_date}"
+            f"last_published_date: {self.last_published_date}"
         )
 
     # -------------------------------------------------------------------------
@@ -85,21 +71,12 @@ class BaseScraper(ABC):
     # -------------------------------------------------------------------------
 
     def _build_session(self) -> requests.Session:
-        """
-        Build a requests Session with:
-        - Correct headers including user agent
-        - Automatic retry on connection errors
-        """
         session = requests.Session()
-
         session.headers.update({
             "User-Agent": USER_AGENT,
             "Accept-Language": "ne, en;q=0.9",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         })
-
-        # Retry on connection errors and 5xx responses
-        # Does NOT retry on 4xx — those are our fault
         retry = Retry(
             total=self.config["retry_attempts"],
             backoff_factor=self.config["retry_backoff_seconds"],
@@ -109,21 +86,20 @@ class BaseScraper(ABC):
         adapter = HTTPAdapter(max_retries=retry)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-
         return session
 
     # -------------------------------------------------------------------------
-    # INCREMENTAL SCRAPING — DATE CUTOFF
+    # INCREMENTAL — LOAD LAST PUBLISHED DATE
     # -------------------------------------------------------------------------
 
-    def _get_cutoff_date(self) -> Optional[date]:
+    def _load_last_published_date(self) -> Optional[str]:
         """
-        Get the cutoff date for incremental scraping.
-        Returns the date of the last successful scrape for this source.
-        Returns None if this is the first run (scrape everything).
+        Load last_published_date for this source from last_run.json.
+        Returns None if first run — scrape everything.
+        Returns ISO date string "YYYY-MM-DD" if previous run exists.
         """
         if not LAST_RUN_FILE.exists():
-            self.logger.info("No last_run.json found — first run, scraping all articles")
+            self.logger.info("No last_run.json — first run, scraping all")
             return None
 
         try:
@@ -131,80 +107,72 @@ class BaseScraper(ABC):
                 last_run = json.load(f)
 
             source_data = last_run.get("sources", {}).get(self.source_name, {})
-            last_run_date_str = source_data.get("last_run_date")
+            last_published = source_data.get("last_published_date")
 
-            if not last_run_date_str:
-                self.logger.info(f"No previous run found for {self.source_name} — scraping all")
+            if not last_published:
+                self.logger.info(
+                    f"No last_published_date for {self.source_name} — scraping all"
+                )
                 return None
 
-            cutoff = datetime.strptime(last_run_date_str, "%Y-%m-%d").date()
-            self.logger.info(f"Cutoff date: {cutoff} — only scraping articles after this date")
-            return cutoff
+            self.logger.info(
+                f"last_published_date: {last_published} — "
+                f"only scraping articles published after this date"
+            )
+            return last_published
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            self.logger.warning(f"Could not read last_run.json: {e} — scraping all articles")
+            self.logger.warning(
+                f"Could not read last_run.json: {e} — scraping all"
+            )
             return None
 
-    def is_before_cutoff(self, article_date_str: str) -> bool:
+    # -------------------------------------------------------------------------
+    # INCREMENTAL — CUTOFF CHECK
+    # -------------------------------------------------------------------------
+
+    def is_before_cutoff(self, published_date_iso: str) -> bool:
         """
-        Check if an article date is before the cutoff date.
-        If True, stop pagination — we have seen this article before.
+        Check if article is old (should be skipped).
 
         Args:
-            article_date_str: ISO format date string "YYYY-MM-DD"
+            published_date_iso: ISO date "YYYY-MM-DD" from article
 
         Returns:
-            True if article is older than cutoff (should stop)
-            False if article is new (should scrape)
+            True  → article is old, stop pagination
+            False → article is new, scrape it
         """
-        if self.cutoff_date is None:
-            return False  # No cutoff — scrape everything
+        if not self.last_published_date:
+            return False  # first run — scrape everything
 
-        try:
-            article_date = datetime.strptime(article_date_str, "%Y-%m-%d").date()
-            return article_date <= self.cutoff_date
-        except ValueError:
-            self.logger.warning(f"Could not parse article date: {article_date_str} — scraping anyway")
-            return False
+        if not published_date_iso:
+            return False  # no date found — scrape to be safe
+
+        return published_date_iso <= self.last_published_date
 
     # -------------------------------------------------------------------------
     # HTTP REQUEST
     # -------------------------------------------------------------------------
 
     def fetch_page(self, url: str) -> Optional[str]:
-        """
-        Fetch a page and return its HTML content.
-        Handles rate limiting and errors.
-
-        Args:
-            url: URL to fetch
-
-        Returns:
-            HTML string if successful, None if failed
-        """
+        """Fetch page HTML. Returns None on failure."""
         try:
             self.logger.debug(f"Fetching: {url}")
             response = self.session.get(url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             response.encoding = "utf-8"
-
-            # Rate limiting — wait between requests
             time.sleep(self.config["rate_limit_seconds"])
-
             return response.text
 
         except requests.exceptions.HTTPError as e:
             self.logger.error(f"HTTP error fetching {url}: {e}")
             return None
-
         except requests.exceptions.ConnectionError as e:
             self.logger.error(f"Connection error fetching {url}: {e}")
             return None
-
         except requests.exceptions.Timeout:
             self.logger.error(f"Timeout fetching {url}")
             return None
-
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Request failed for {url}: {e}")
             return None
@@ -215,19 +183,13 @@ class BaseScraper(ABC):
 
     def save_raw(self, articles: list[RawArticle]) -> Path:
         """
-        Save scraped articles to a dated JSON file.
-        File is immutable once written — never overwrite.
-
-        Args:
-            articles: List of RawArticle to save
-
-        Returns:
-            Path to saved file
+        Save scraped articles to dated JSON file.
+        published_date_iso is NOT saved — internal field only.
+        Deduplicates by source_url within same run.
         """
         today = date.today().strftime("%Y-%m-%d")
         output_path = self.raw_dir / f"{today}.json"
 
-        # If file exists for today (re-run) — append new articles
         existing = []
         if output_path.exists():
             with open(output_path, "r", encoding="utf-8") as f:
@@ -237,10 +199,9 @@ class BaseScraper(ABC):
                 f"({len(existing)} existing articles)"
             )
 
-        # Convert dataclasses to dicts
         new_records = [self._article_to_dict(a) for a in articles]
 
-        # Merge and deduplicate by source_url
+        # Deduplicate by source_url within same run
         all_records = existing + new_records
         seen_urls = set()
         deduplicated = []
@@ -259,19 +220,46 @@ class BaseScraper(ABC):
         return output_path
 
     def _article_to_dict(self, article: RawArticle) -> dict:
-        """Convert RawArticle dataclass to dict for JSON serialization."""
+        """
+        Convert RawArticle to dict for JSON storage.
+        published_date_iso intentionally excluded — internal only.
+        """
         return {
-            "source_name":       article.source_name,
-            "source_url":        article.source_url,
-            "title":             article.title,
-            "body_text":         article.body_text,
-            "raw_verdict_text":  article.raw_verdict_text,
-            "date_published":    article.date_published,
-            "date_scraped":      article.date_scraped,
-            "author":            article.author,
-            "category":          article.category,
-            "external_links":    article.external_links,
+            "source_name":      article.source_name,
+            "source_url":       article.source_url,
+            "title":            article.title,
+            "body_text":        article.body_text,
+            "raw_verdict_text": article.raw_verdict_text,
+            "date_published":   article.date_published,  # raw string as-is
+            "date_scraped":     article.date_scraped,
+            "author":           article.author,
+            "category":         article.category,
+            "external_links":   article.external_links,
         }
+
+    # -------------------------------------------------------------------------
+    # FIND MAX PUBLISHED DATE
+    # -------------------------------------------------------------------------
+
+    def get_max_published_date(self, articles: list[RawArticle]) -> Optional[str]:
+        """
+        Find the maximum published_date_iso from scraped articles.
+        Used by collector.py to update last_published_date in last_run.json.
+
+        Args:
+            articles: List of scraped RawArticle
+
+        Returns:
+            ISO date string of most recent article, or None
+        """
+        dates = [
+            a.published_date_iso
+            for a in articles
+            if a.published_date_iso
+        ]
+        if not dates:
+            return None
+        return max(dates)
 
     # -------------------------------------------------------------------------
     # PAGINATION
@@ -279,74 +267,68 @@ class BaseScraper(ABC):
 
     def paginate(self) -> list[RawArticle]:
         """
-        Paginate through all pages of the source until:
-        1. Empty page found (end of site)
-        2. Article date is before cutoff (incremental stop)
-        3. Request fails after all retries
-        4. Same URLs returned as previous page (WordPress redirect loop)
-
-        Returns:
-            List of all new RawArticle found
+        Paginate through all pages until:
+        1. Empty page — end of site
+        2. Article published_date_iso <= last_published_date — cutoff reached
+        3. WordPress redirect loop detected
         """
         all_articles = []
         page = self.config["start_page"]
         stop = False
-        seen_page_urls = set()  # tracks all article URLs seen so far
+        seen_page_urls = set()
 
         while not stop:
             page_url = self.config["list_url_template"].format(page=page)
             self.logger.info(f"Scraping page {page}: {page_url}")
 
-            # Get article links from this page
             links = self.get_article_links(page_url)
 
-            # Stop condition 1: empty page = end of site
+            # Stop: empty page
             if not links:
                 self.logger.info(
-                    f"Page {page} returned no articles — stopping pagination"
+                    f"Page {page} returned no articles — stopping"
                 )
                 break
 
-            # Stop condition 2: WordPress redirect loop detection
-            # If ALL links on this page were already seen in previous pages
-            # the site is redirecting out-of-range pages back to page 1
+            # Stop: WordPress redirect loop
             new_links = [l for l in links if l not in seen_page_urls]
             if not new_links:
                 self.logger.info(
-                    f"Page {page} returned only previously seen URLs — "
-                    f"WordPress redirect loop detected, stopping pagination"
+                    f"Page {page} — WordPress redirect loop detected, stopping"
                 )
                 break
 
-            # Register all links from this page as seen
             seen_page_urls.update(links)
 
             # Scrape each new article
             page_articles = []
             for url in new_links:
-                # Check date before fetching full article
-                article_date = self.get_article_date(url)
-                if article_date and self.is_before_cutoff(article_date):
+
+                # Fetch and scrape article
+                article = self.scrape_article(url)
+
+                if article is None:
+                    self.articles_skipped += 1
+                    continue
+
+                # Cutoff check using published_date_iso
+                if self.is_before_cutoff(article.published_date_iso):
                     self.logger.info(
-                        f"Article date {article_date} is before cutoff "
-                        f"{self.cutoff_date} — stopping pagination"
+                        f"Cutoff reached — article date "
+                        f"{article.published_date_iso} <= "
+                        f"{self.last_published_date} — stopping"
                     )
                     stop = True
                     break
 
-                article = self.scrape_article(url)
-                if article:
-                    page_articles.append(article)
-                    self.articles_scraped += 1
-                else:
-                    self.articles_skipped += 1
+                page_articles.append(article)
+                self.articles_scraped += 1
 
             all_articles.extend(page_articles)
             self.logger.info(
                 f"Page {page}: scraped {len(page_articles)} articles "
                 f"(total so far: {len(all_articles)})"
             )
-
             page += 1
 
         self.logger.info(
@@ -357,48 +339,20 @@ class BaseScraper(ABC):
         return all_articles
 
     # -------------------------------------------------------------------------
-    # ABSTRACT METHODS — implemented by each source scraper
+    # ABSTRACT METHODS
     # -------------------------------------------------------------------------
 
     @abstractmethod
     def get_article_links(self, page_url: str) -> list[str]:
-        """
-        Extract all article URLs from a listing page.
-
-        Args:
-            page_url: URL of the listing/index page
-
-        Returns:
-            List of absolute article URLs
-        """
+        """Extract article URLs from a listing page."""
         pass
 
     @abstractmethod
     def scrape_article(self, url: str) -> Optional[RawArticle]:
         """
-        Scrape a single article page and return a RawArticle.
-
-        Args:
-            url: URL of the article page
-
-        Returns:
-            RawArticle if successful, None if failed
-        """
-        pass
-
-    @abstractmethod
-    def get_article_date(self, url: str) -> Optional[str]:
-        """
-        Get the publication date of an article without
-        fully scraping it. Used for cutoff date checking
-        during pagination — avoids fetching full articles
-        we don't need.
-
-        Args:
-            url: URL of the article page
-
-        Returns:
-            ISO format date string "YYYY-MM-DD" or None
+        Scrape a single article.
+        Must set article.published_date_iso for cutoff check.
+        Must set article.date_published as raw string for storage.
         """
         pass
 
@@ -407,13 +361,7 @@ class BaseScraper(ABC):
     # -------------------------------------------------------------------------
 
     def run(self) -> list[RawArticle]:
-        """
-        Main entry point. Called by collector.py.
-        Paginates, scrapes, saves raw output.
-
-        Returns:
-            List of scraped RawArticle
-        """
+        """Main entry point. Called by collector.py."""
         self.logger.info(f"Starting {self.source_name} scraper")
         articles = self.paginate()
 

@@ -30,51 +30,45 @@ class RawArticle:
 
     # --- Identity ---
     source_name: str
-    # Which scraper produced this
-    # "techpana" / "nepalcheck" / "nepalfactcheck"
-    # "bbc_nepali" / "kantipur"
-
     source_url: str
-    # Full URL of the article page
 
     # --- Raw content ---
     title: str
-    # Article headline as it appears on the page
-
     body_text: str
-    # Full article body text — stripped of HTML tags
-    # This becomes evidence_text after normalization
 
     raw_verdict_text: str
     # Verdict exactly as found on the page
-    # e.g. "मिथ्या" / "misleading" / "half-truth"
-    # Empty string "" for newspaper sources (no verdict)
+    # e.g. "मिथ्या" / "भ्रामक" / ""
 
     date_published: str
-    # Date string exactly as found on the page
-    # e.g. "August 13, 2026" / "भदौ २८, २०८३"
-    # Normalized to ISO format in Stage 2
+    # Date string EXACTLY as found on the page — NO conversion
+    # TechPana:       "भदौ ९, २०८३ १६:८"  ← raw BS string
+    # NepalFactCheck: "2026-07-14T14:47:19+05:45" ← raw ISO string
+    # Converted to ISO in Stage 2 normalizer
 
     date_scraped: str
     # ISO format date when this article was scraped
-    # e.g. "2026-08-31"
-    # Set by scraper at collection time
+    # e.g. "2026-09-05" — set by scraper
+
+    # --- Internal field for incremental cutoff check ---
+    published_date_iso: str = ""
+    # ISO date "YYYY-MM-DD" for cutoff comparison ONLY
+    # NOT stored in raw JSON — used by base.py paginate()
 
     # --- Optional fields ---
     author: str = ""
-    # Article author if available, empty string otherwise
-
     category: str = ""
-    # Category tag from the website if available
-
     external_links: list = field(default_factory=list)
-    # All outbound links found in article body
-    # Potential evidence URLs — filtered in normalization
+
+    annotator_notes: str = ""
+    # ← NEW: flags issues found during scraping
+    # "verdict_requires_manual_review" if verdict extraction failed
+    # Empty string otherwise
+    # Stored in raw JSON for Stage 2 human review
 
 
 # =============================================================================
 # STAGE 2 — NEPFAKEV2 EXAMPLE
-# Normalized dataset record — what goes into nepfakev2.csv
 # =============================================================================
 
 @dataclass
@@ -87,91 +81,33 @@ class NepFakeV2Example:
 
     # --- Identity ---
     example_id: str
-    # Format: NF2_YYYYMMDD_NNNN
-    # e.g.   NF2_20260831_0001
-    # Assigned by normalizer — never by scraper
-    # Stable across dataset versions
-
-    # --- The claim ---
     claim_text: str
-    # The claim being verified, in Nepali (Devanagari)
-    # For fact-checker sources: extracted from article body
-    # For newspaper sources: article headline
 
     # --- Verdict ---
     verdict_label: int
-    # 0 = REAL
-    # 1 = FALSE_MISLEADING
-    # 2 = UNVERIFIED
-
     verdict_label_text: str
-    # Human readable label
-    # "REAL" / "FALSE_MISLEADING" / "UNVERIFIED"
 
     # --- Evidence ---
     evidence_text: str
-    # Full fact-check article body in Nepali
-    # This is the evidence document for RAG pipeline
-    # For newspaper sources: full article body
-
     evidence_sentences: list = field(default_factory=list)
-    # Key sentences from article that justify the verdict
-    # Extracted from evidence_text
-    # Enables sentence-level retrieval (FEVER-compatible)
-
     external_evidence_urls: list = field(default_factory=list)
-    # URLs cited by fact-checker as proof
-    # e.g. government press releases, official statements
-    # Empty list for newspaper sources
 
     # --- Source metadata ---
     source_name: str = ""
-    # "techpana" / "nepalcheck" / "nepalfactcheck"
-    # "bbc_nepali" / "kantipur"
-
     source_type: str = ""
-    # "fact_checker" or "newspaper"
-
     source_url: str = ""
-    # Original article URL for verification
-
     source_outlet: str = ""
-    # Outlet that originally published the claim
-    # e.g. "Kantipur" / "Setopati" / "Facebook"
-    # Relevant for fact-checker sources
-
     date_published: str = ""
-    # ISO format: YYYY-MM-DD
-    # Empty string if not found — never None (breaks CSV)
 
     # --- Quality flags ---
     is_native_nepali: bool = False
-    # True if claim_text contains Devanagari script
-    # Set by validator using is_devanagari()
-
     label_basis: str = "fact_checker_verdict"
-    # How the label was assigned:
-    # "fact_checker_verdict" — verified by professional fact-checker
-    # "source_credibility"   — newspaper source, presumed factual
-    # Important for paper: documents assumption for Label 0
-
     topic_category: str = "other"
-    # politics / health / society / technology / environment / other
-    # Assigned by normalizer using keyword detection
-
     annotator_notes: str = ""
-    # Edge case notes, label disagreements
-    # Empty string by default
-
     split: str = ""
-    # "train" / "dev" / "test"
-    # Assigned after full dataset is collected
-    # Fixed split — reproducible via random seed 42
 
     # --- Schema version ---
     schema_version: str = field(default_factory=lambda: SCHEMA_VERSION)
-    # "1.0" — increment when schema changes
-    # Allows old records to be identified and migrated
 
 
 # =============================================================================
@@ -179,10 +115,7 @@ class NepFakeV2Example:
 # =============================================================================
 
 def to_dict(example: NepFakeV2Example) -> dict:
-    """
-    Convert NepFakeV2Example to a flat dictionary for CSV/JSON export.
-    Lists are stored as pipe-separated strings in CSV.
-    """
+    """Convert NepFakeV2Example to flat dict for CSV/JSON export."""
     return {
         "example_id":             example.example_id,
         "claim_text":             example.claim_text,
@@ -206,10 +139,7 @@ def to_dict(example: NepFakeV2Example) -> dict:
 
 
 def from_dict(d: dict) -> NepFakeV2Example:
-    """
-    Reconstruct NepFakeV2Example from a CSV/JSON row.
-    Inverse of to_dict().
-    """
+    """Reconstruct NepFakeV2Example from CSV/JSON row."""
     return NepFakeV2Example(
         example_id=             d["example_id"],
         claim_text=             d["claim_text"],
@@ -238,13 +168,6 @@ def validate_label(label: int) -> bool:
 
 
 def make_example_id(date_str: str, sequence: int) -> str:
-    """
-    Generate a stable example ID.
-    Args:
-        date_str: ISO date string e.g. "2026-08-31"
-        sequence: Sequential number for this run e.g. 1
-    Returns:
-        e.g. "NF2_20260831_0001"
-    """
+    """Generate stable example ID e.g. 'NF2_20260831_0001'"""
     date_compact = date_str.replace("-", "")
     return f"NF2_{date_compact}_{sequence:04d}"

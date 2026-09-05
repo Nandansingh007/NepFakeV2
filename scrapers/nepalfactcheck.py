@@ -6,17 +6,16 @@
 # HTML structure (verified 05 Sep 2026):
 #   Listing:     WordPress — articles in <article> tags
 #   URL pattern: nepalfactcheck.org/YYYY/MM/slug
-#   Date:        meta article:published_time — clean ISO format
+#   Date:        meta article:published_time — raw ISO string stored as-is
 #   Verdict:     1. SVG image filename: bhramak.svg / mithya.svg etc.
 #                2. Title keyword: "भ्रामक", "मिथ्या", "गलत" etc.
 #                3. Conclusion section text
 #                4. Full body search
 #
-# Fixes (05 Sep 2026):
-#   - Added गलत as verdict keyword → maps to मिथ्या सूचना
-#   - Added title-based verdict extraction (Strategy 2)
-#   - Added full body search fallback (Strategy 4)
-#   - Fixed pagination URL to /news/page/{n}/
+# Stage 1 principles:
+#   - date_published stored as raw ISO string as-is
+#   - published_date_iso = first 10 chars for cutoff check ONLY
+#   - published_date_iso NOT stored in raw JSON
 # =============================================================================
 
 import re
@@ -28,7 +27,7 @@ from bs4 import BeautifulSoup
 
 from scrapers.base import BaseScraper
 from schema.schema import RawArticle
-from scrapers.techpana import BS_MONTHS, parse_bs_date
+from scrapers.techpana import BS_MONTHS
 
 
 # =============================================================================
@@ -42,7 +41,6 @@ SVG_VERDICT_MAP = {
     "sahi":    "सही सूचना",
 }
 
-# FIXED: added गलत as variant for मिथ्या सूचना
 VERDICT_KEYWORDS = {
     "मिथ्या सूचना": "मिथ्या सूचना",
     "भ्रामक सूचना": "भ्रामक सूचना",
@@ -52,7 +50,7 @@ VERDICT_KEYWORDS = {
     "भ्रामक":       "भ्रामक सूचना",
     "अपुष्ट":       "अपुष्ट सूचना",
     "सही":          "सही सूचना",
-    "गलत":          "मिथ्या सूचना",   # NEW — used in titles
+    "गलत":          "मिथ्या सूचना",
     "misleading":   "भ्रामक सूचना",
     "false":        "मिथ्या सूचना",
     "unverified":   "अपुष्ट सूचना",
@@ -79,11 +77,7 @@ def extract_verdict_from_svg(soup: BeautifulSoup) -> Optional[str]:
 
 
 def extract_verdict_from_title(title: str) -> Optional[str]:
-    """
-    Extract verdict from article title.
-    NepalFactCheck includes verdict keyword in title.
-    e.g. "...दाबी मिथ्या" / "...भ्रामक दाबी" / "...दाबी गलत"
-    """
+    """Extract verdict from article title keyword."""
     if not title:
         return None
     for keyword, verdict in VERDICT_KEYWORDS.items():
@@ -96,18 +90,15 @@ def extract_verdict_from_conclusion(body_text: str) -> Optional[str]:
     """Extract verdict from conclusion section text."""
     if not body_text:
         return None
-
     search_text = body_text
     for marker in CONCLUSION_MARKERS:
         idx = body_text.find(marker)
         if idx != -1:
             search_text = body_text[idx:]
             break
-
     for keyword, verdict in VERDICT_KEYWORDS.items():
         if keyword in search_text:
             return verdict
-
     return None
 
 
@@ -129,6 +120,7 @@ class NepalfactcheckScraper(BaseScraper):
     """
     Scraper for NepalFactCheck Nepali fact-checks.
     nepalfactcheck.org/news/page/{n}/
+    Incremental: last_published_date from last_run.json
     """
 
     def __init__(self):
@@ -206,15 +198,14 @@ class NepalfactcheckScraper(BaseScraper):
         )
         return unique_links
 
-    def get_article_date(self, url: str) -> Optional[str]:
-        """Extract date from URL pattern /YYYY/MM/ without fetching."""
-        match = re.search(r"/(\d{4})/(\d{2})/", url)
-        if match:
-            return f"{match.group(1)}-{match.group(2)}-01"
-        return None
-
     def scrape_article(self, url: str) -> Optional[RawArticle]:
-        """Scrape a single NepalFactCheck article."""
+        """
+        Scrape a single NepalFactCheck article.
+
+        Sets two date fields:
+          date_published:     raw ISO string stored in JSON as-is
+          published_date_iso: first 10 chars for cutoff check ONLY
+        """
         html = self.fetch_page(url)
         if not html:
             self.logger.warning(f"Failed to fetch: {url}")
@@ -264,25 +255,26 @@ class NepalfactcheckScraper(BaseScraper):
                 return None
 
             # --- Date ---
+            # date_published:     raw ISO string stored as-is
+            # published_date_iso: first 10 chars for cutoff check only
             date_published = ""
+            published_date_iso = ""
 
+            # Strategy 1: article:published_time meta tag
             meta_pub = soup.find("meta", property="article:published_time")
             if meta_pub:
                 dt = meta_pub.get("content", "")
                 if dt:
-                    date_published = dt[:10]
+                    date_published = dt                  # raw ISO → stored as-is
+                    published_date_iso = dt[:10]         # YYYY-MM-DD → cutoff only
 
+            # Strategy 2: URL pattern /YYYY/MM/ as fallback
             if not date_published:
-                date_published = self.get_article_date(url) or ""
-
-            if not date_published:
-                page_text = soup.get_text()
-                for month in BS_MONTH_NAMES:
-                    pattern = rf"{month}\s+[०-९\d]+,?\s+[०-९\d]{{4}}"
-                    match = re.search(pattern, page_text)
-                    if match:
-                        date_published = parse_bs_date(match.group(0)) or ""
-                        break
+                match = re.search(r"/(\d{4})/(\d{2})/", url)
+                if match:
+                    date_published = f"{match.group(1)}-{match.group(2)}"
+                    published_date_iso = f"{match.group(1)}-{match.group(2)}-01"
+                    self.logger.warning(f"Date fallback to URL pattern: {url}")
 
             # --- Author ---
             author = ""
@@ -312,18 +304,14 @@ class NepalfactcheckScraper(BaseScraper):
                     author = author_link.get_text(strip=True)
 
             # --- Verdict ---
-            # Strategy 1: SVG image filename (most reliable)
             raw_verdict = extract_verdict_from_svg(soup)
 
-            # Strategy 2: title keyword (FIXED — handles गलत, मिथ्या in title)
             if not raw_verdict:
                 raw_verdict = extract_verdict_from_title(title)
 
-            # Strategy 3: conclusion section text
             if not raw_verdict:
                 raw_verdict = extract_verdict_from_conclusion(body_text)
 
-            # Strategy 4: full body search (last resort)
             if not raw_verdict:
                 raw_verdict = extract_verdict_from_body(body_text)
 
@@ -347,7 +335,8 @@ class NepalfactcheckScraper(BaseScraper):
                 title=title,
                 body_text=body_text,
                 raw_verdict_text=raw_verdict or "",
-                date_published=date_published,
+                date_published=date_published,          # raw ISO string
+                published_date_iso=published_date_iso,  # cutoff only
                 date_scraped=date.today().isoformat(),
                 author=author,
                 category="factcheck",
@@ -357,8 +346,8 @@ class NepalfactcheckScraper(BaseScraper):
             self.logger.debug(
                 f"Scraped: {title[:60]} | "
                 f"verdict: {raw_verdict} | "
-                f"date: {date_published} | "
-                f"author: {author}"
+                f"date_raw: {date_published} | "
+                f"date_iso: {published_date_iso}"
             )
             return article
 

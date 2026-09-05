@@ -5,10 +5,18 @@
 #
 # HTML structure (verified 31 Aug 2026):
 #   Article cards: <h3><a href="/2026/XXXXXX/slug">title</a></h3>
-#   Author:        <a href="/author/NN">Author Name</a>
-#   Date:          Plain text after author — "भदौ ९, २०८३ १६:८"
+#   Date:          Plain text — "भदौ ९, २०८३ १६:८" (BS format)
 #   Verdict:       og:image filename e.g. "False_xxx.jpg"
 #   Pagination:    ?tab=nepali&page={n}
+#
+# Stage 1 principles:
+#   - date_published stored as raw BS string — NO conversion
+#   - published_date_iso computed internally for cutoff check ONLY
+#   - published_date_iso NOT stored in raw JSON
+#
+# Fixes (05 Sep 2026):
+#   - Added झुटो, साँचो, गलत to VERDICT_KEYWORDS
+#   - Fixed img src search to check ALL img tags not just first
 # =============================================================================
 
 import re
@@ -24,7 +32,7 @@ from schema.schema import RawArticle
 
 
 # =============================================================================
-# NEPALI BIKRAM SAMBAT → ISO DATE CONVERTER
+# BS MONTH NAMES + DATE HELPERS
 # =============================================================================
 
 BS_MONTHS = {
@@ -42,12 +50,9 @@ def nepali_to_ascii(text: str) -> str:
 
 def parse_bs_date(date_str: str) -> Optional[str]:
     """
-    Parse Nepali BS date string to exact ISO format.
-    Uses nepali-datetime library.
-
-    Examples:
-        "भदौ ९, २०८३"   → "2026-08-25"
-        "साउन २८, २०८३" → "2026-08-13"
+    Convert BS date string to ISO format.
+    Used ONLY for published_date_iso (cutoff comparison).
+    NOT used for storage — raw string stored as-is.
     """
     try:
         date_str = date_str.strip()
@@ -75,11 +80,15 @@ def parse_bs_date(date_str: str) -> Optional[str]:
 # VERDICT EXTRACTION
 # =============================================================================
 
+# FIXED: added informal Nepali verdict words
 VERDICT_KEYWORDS = {
     "मिथ्या": "मिथ्या",
     "भ्रामक": "भ्रामक",
     "अपुष्ट": "अपुष्ट",
     "सही":    "सही",
+    "झुटो":   "मिथ्या",   # informal "false"
+    "साँचो":  "सही",      # informal "true"
+    "गलत":    "मिथ्या",   # informal "wrong"
 }
 
 IMAGE_VERDICT_MAP = {
@@ -119,6 +128,7 @@ class TechpanaScraper(BaseScraper):
     """
     Scraper for TechPana Nepali fact-checks.
     techpana.com/factcheck/?tab=nepali&page={n}
+    Incremental: last_published_date from last_run.json
     """
 
     def __init__(self):
@@ -146,7 +156,6 @@ class TechpanaScraper(BaseScraper):
                 else:
                     links.append(urljoin("https://techpana.com", href))
 
-        # Keep only fact-check article URLs, exclude English
         links = [
             l for l in links
             if re.search(r"/\d{4}/\d+/", l)
@@ -154,7 +163,6 @@ class TechpanaScraper(BaseScraper):
             and "/english/" not in l
         ]
 
-        # Deduplicate preserving order
         seen = set()
         unique_links = []
         for l in links:
@@ -167,12 +175,14 @@ class TechpanaScraper(BaseScraper):
         )
         return unique_links
 
-    def get_article_date(self, url: str) -> Optional[str]:
-        """Date extracted inside scrape_article()."""
-        return None
-
     def scrape_article(self, url: str) -> Optional[RawArticle]:
-        """Scrape a single TechPana fact-check article."""
+        """
+        Scrape a single TechPana fact-check article.
+
+        Sets two date fields:
+          date_published:     raw BS string stored in JSON as-is
+          published_date_iso: ISO date for cutoff check only, NOT stored
+        """
         html = self.fetch_page(url)
         if not html:
             self.logger.warning(f"Failed to fetch: {url}")
@@ -207,63 +217,50 @@ class TechpanaScraper(BaseScraper):
                 return None
 
             # --- Author ---
-            # Structure: <a href="/author/77">रञ्जिता उप्रेती</a>
-            author = ""
-            author_link = soup.find("a", href=re.compile(r"/author/\d+"))
-            if author_link:
-                author = author_link.get_text(strip=True)
+            author = ""  # JS-rendered, skipped for now
 
             # --- Date ---
-            # Strategy 1: article:published_time meta tag
             date_published = ""
-            meta_pub = soup.find("meta", property="article:published_time")
-            if meta_pub:
-                dt = meta_pub.get("content", "")
-                if dt:
-                    date_published = dt[:10]
+            published_date_iso = ""
 
-            # Strategy 2: Nepali month name pattern in page text
-            if not date_published:
-                page_text = soup.get_text()
-                for month in BS_MONTHS.keys():
-                    pattern = rf"{month}\s+[०-९\d]+,?\s+[०-९\d]{{4}}"
-                    match = re.search(pattern, page_text)
-                    if match:
-                        date_published = parse_bs_date(match.group(0)) or ""
-                        break
+            page_text = soup.get_text()
+            for month in BS_MONTHS.keys():
+                pattern = rf"{month}\s+[०-९\d]+,?\s+[०-९\d]{{4}}"
+                match = re.search(pattern, page_text)
+                if match:
+                    date_published = match.group(0)
+                    published_date_iso = parse_bs_date(date_published) or ""
+                    break
 
-            # Strategy 3: year from URL as last resort
             if not date_published:
                 year_match = re.search(r"/(\d{4})/", url)
                 if year_match:
-                    date_published = f"{year_match.group(1)}-01-01"
-                    self.logger.warning(
-                        f"Date fallback to year for: {url}"
-                    )
+                    date_published = year_match.group(1)
+                    published_date_iso = f"{year_match.group(1)}-01-01"
+                    self.logger.warning(f"Date fallback to year only: {url}")
 
             # --- Verdict ---
-            # Strategy 1: og:image filename
             raw_verdict = ""
+
+            # Strategy 1: og:image filename
             og_image = soup.find("meta", property="og:image")
             if og_image:
                 raw_verdict = extract_verdict_from_image(
                     og_image.get("content", "")
                 ) or ""
 
-            # Strategy 2: any img src with verdict keyword
+            # Strategy 2: search ALL img tags for verdict keyword
+            # FIXED: was only checking first img tag
             if not raw_verdict:
-                img_tag = soup.find(
-                    "img",
-                    src=re.compile(
-                        r"(false|misleading|unverified|verified)", re.I
-                    )
-                )
-                if img_tag:
-                    raw_verdict = extract_verdict_from_image(
-                        img_tag.get("src", "")
-                    ) or ""
+                for img in soup.find_all("img", src=True):
+                    src = img.get("src", "")
+                    result = extract_verdict_from_image(src)
+                    if result:
+                        raw_verdict = result
+                        break
 
             # Strategy 3: body text conclusion section
+            # FIXED: now includes झुटो, साँचो, गलत keywords
             if not raw_verdict:
                 raw_verdict = extract_verdict_from_body(body_text) or ""
 
@@ -285,6 +282,7 @@ class TechpanaScraper(BaseScraper):
                 body_text=body_text,
                 raw_verdict_text=raw_verdict,
                 date_published=date_published,
+                published_date_iso=published_date_iso,
                 date_scraped=date.today().isoformat(),
                 author=author,
                 category="factcheck",
@@ -294,8 +292,8 @@ class TechpanaScraper(BaseScraper):
             self.logger.debug(
                 f"Scraped: {title[:60]} | "
                 f"verdict: {raw_verdict} | "
-                f"date: {date_published} | "
-                f"author: {author}"
+                f"date_raw: {date_published} | "
+                f"date_iso: {published_date_iso}"
             )
             return article
 
