@@ -64,11 +64,11 @@ sources:
   # ---------------------------------------------------------------------------
   nepalcheck:
     name: "nepalcheck"
-    display_name: "NepalCheck"
-    base_url: "https://nepalcheck.org/factcheck/"
-    list_url_template: "https://nepalcheck.org/factcheck/page/{page}/"
+    display_name: "NepalCheck (Nepali)"
+    base_url: "https://np.nepalcheck.org/factcheck/"
+    list_url_template: "https://np.nepalcheck.org/factcheck/page/{page}/"
     start_page: 1
-    max_pages: null              # paginate until empty page or cutoff date
+    max_pages: null
     active: true
     rate_limit_seconds: 2
     retry_attempts: 3
@@ -77,22 +77,17 @@ sources:
     scraper_class: "NepalcheckScraper"
     source_type: "fact_checker"
 
-    # Verified labels from: nepalcheck.org/about/
-    # IMPORTANT: verdict written in English prose inside article body
-    # not as structured HTML tag — label_mapper uses text parsing
     labels:
       raw:
-        - "misleading"           # → label 1
-        - "false"                # → label 1
-        - "half-truth"           # → label 1
-        - "true"                 # → label 0 (if published)
-        - "unverified"           # → label 2 (if published)
-      labels_produced: [0, 1, 2] # all caught automatically if published
+        - "भ्रामक"      # Misleading → label 1
+        - "मिथ्या"      # False      → label 1
+        - "अपुष्ट"      # Unverified → label 2
+        - "सही"         # True       → label 0 (if published)
+      labels_produced: [0, 1, 2]
       note: >
-        Verdict written in English prose, not a structured tag.
-        Most common verdict is 'misleading'.
-        All verdicts caught automatically by label_mapper.
-        Extraction requires text parsing of article body.
+        Nepali-language version of NepalCheck at np.nepalcheck.org.
+        Verdict written in Nepali text in article title and body.
+        URL pattern: np.nepalcheck.org/YYYY/MM/DD/slug
 
   # ---------------------------------------------------------------------------
   # SOURCE 3: NepalFactCheck.org
@@ -106,7 +101,7 @@ sources:
     name: "nepalfactcheck"
     display_name: "Nepal Factcheck"
     base_url: "https://nepalfactcheck.org/"
-    list_url_template: "https://nepalfactcheck.org/page/{page}/"
+    list_url_template: "https://nepalfactcheck.org/news/page/{page}/"
     start_page: 1
     max_pages: null              # paginate until empty page or cutoff date
     active: true

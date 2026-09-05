@@ -10,6 +10,7 @@
 #   - Raw JSON saving with dated filenames
 #   - Structured logging per scraper
 #   - Shared HTTP session with correct headers
+#   - WordPress redirect loop detection
 #
 # Usage:
 #   from scrapers.base import BaseScraper
@@ -282,6 +283,7 @@ class BaseScraper(ABC):
         1. Empty page found (end of site)
         2. Article date is before cutoff (incremental stop)
         3. Request fails after all retries
+        4. Same URLs returned as previous page (WordPress redirect loop)
 
         Returns:
             List of all new RawArticle found
@@ -289,6 +291,7 @@ class BaseScraper(ABC):
         all_articles = []
         page = self.config["start_page"]
         stop = False
+        seen_page_urls = set()  # tracks all article URLs seen so far
 
         while not stop:
             page_url = self.config["list_url_template"].format(page=page)
@@ -297,14 +300,30 @@ class BaseScraper(ABC):
             # Get article links from this page
             links = self.get_article_links(page_url)
 
-            # Empty page = end of site
+            # Stop condition 1: empty page = end of site
             if not links:
-                self.logger.info(f"Page {page} returned no articles — stopping pagination")
+                self.logger.info(
+                    f"Page {page} returned no articles — stopping pagination"
+                )
                 break
 
-            # Scrape each article
+            # Stop condition 2: WordPress redirect loop detection
+            # If ALL links on this page were already seen in previous pages
+            # the site is redirecting out-of-range pages back to page 1
+            new_links = [l for l in links if l not in seen_page_urls]
+            if not new_links:
+                self.logger.info(
+                    f"Page {page} returned only previously seen URLs — "
+                    f"WordPress redirect loop detected, stopping pagination"
+                )
+                break
+
+            # Register all links from this page as seen
+            seen_page_urls.update(links)
+
+            # Scrape each new article
             page_articles = []
-            for url in links:
+            for url in new_links:
                 # Check date before fetching full article
                 article_date = self.get_article_date(url)
                 if article_date and self.is_before_cutoff(article_date):
