@@ -1,12 +1,12 @@
 {
-  "total_raw_articles": 922,
+  "total_raw_articles": 923,
   "by_source": {
     "techpana": {
-      "total": 263,
+      "total": 264,
       "verdict_distribution": {
         "मिथ्या": 55,
         "भ्रामक": 163,
-        "अपुष्ट": 42,
+        "अपुष्ट": 43,
         "EMPTY": 1,
         "सही": 2
       },
@@ -27,6 +27,6 @@
       "empty_verdicts": 0
     }
   },
-  "last_updated": "2026-09-06T05:52:59.541607+00:00",
-  "run_id": "run_20260906_050158"
+  "last_updated": "2026-09-06T06:50:12.730509+00:00",
+  "run_id": "run_20260906_064957"
 }
