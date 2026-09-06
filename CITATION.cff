@@ -1,0 +1,41 @@
+cff-version: 1.2.0
+message: "If you use this dataset, please cite it using the following metadata."
+
+title: "NepFakeV2: A Live Benchmark Dataset for Nepali Misinformation Detection"
+version: "1.0"
+date-released: "2026-09-06"
+
+authors:
+  - family-names: "Singh"
+    given-names: "Nandan"
+    email: "nandansingh007@gmail.com"
+    orcid: ""
+
+repository-code: "https://github.com/Nandansingh007/NepFakeV2"
+url: "https://github.com/Nandansingh007/NepFakeV2"
+license: "CC-BY-4.0"
+
+abstract: >
+  NepFakeV2 is the first real, non-synthetic Nepali fact-checking dataset.
+  Built directly from verified fact-checks published by two active Nepali
+  fact-checking organizations — TechPana and NepalFactCheck. The dataset
+  contains labeled claims with three categories: REAL (0), FALSE/MISLEADING (1),
+  and UNVERIFIED (2). It is auto-updated daily via GitHub Actions and grows
+  incrementally as new fact-checks are published.
+
+keywords:
+  - "Nepali"
+  - "misinformation"
+  - "fake news"
+  - "fact-checking"
+  - "natural language processing"
+  - "low-resource languages"
+  - "benchmark dataset"
+
+references:
+  - type: website
+    title: "TechPana Factcheck"
+    url: "https://techpana.com/factcheck/"
+  - type: website
+    title: "NepalFactCheck"
+    url: "https://nepalfactcheck.org"
