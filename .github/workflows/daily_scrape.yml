@@ -1,25 +1,9 @@
-# .github/workflows/daily_scrape.yml
-# =============================================================================
-# NepFakeV2 Daily Raw Data Collection
-#
-# Runs every day at 6AM NPT (00:15 UTC)
-# Nepal timezone = UTC+5:45
-#
-# What it does:
-#   1. Runs collector.py (incremental scrape)
-#   2. Saves new raw articles to raw/
-#   3. Updates last_run.json and stats_raw.json
-#   4. Commits and pushes changes to main
-#
-# Manual trigger: Actions tab → Run workflow
-# =============================================================================
-
 name: Daily Raw Data Collection
 
 on:
   schedule:
-    - cron: '15 0 * * *'   # 6AM NPT daily (00:15 UTC)
-  workflow_dispatch:         # allow manual trigger
+    - cron: '15 0 * * *'
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -56,7 +40,8 @@ jobs:
           git config --global user.name "NepFakeV2 Bot"
           git config --global user.email "nandansingh007@gmail.com"
           git add raw/
-          git commit -m "data: daily scrape $(date +'%Y-%m-%d') — $(python -c "import json; d=json.load(open('raw/stats_raw.json')); print(f\"{d['total_raw_articles']} total articles\")")"
+          TOTAL=$(python -c "import json; d=json.load(open('raw/stats_raw.json')); print(d['total_raw_articles'])")
+          git commit -m "data: daily scrape $(date +'%Y-%m-%d') — ${TOTAL} total articles"
           git push
 
       - name: No changes found
