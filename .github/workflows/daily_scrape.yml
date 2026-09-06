@@ -38,11 +38,11 @@ jobs:
         run: |
           python -m pipeline.collector
 
-      - name: Commit and push raw data
+      - name: Commit and push
         run: |
           git config --global user.name "NepFakeV2 Bot"
           git config --global user.email "nandansingh007@gmail.com"
-          git add raw/
+          git add raw/ data/
           if git diff --staged --quiet; then
             echo "No new articles — skipping commit"
           else

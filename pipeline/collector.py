@@ -220,6 +220,26 @@ def run_collector() -> None:
     logger.info(f"Updated stats_raw.json")
     logger.info(f"Total raw articles: {stats['total_raw_articles']}")
 
+    # -------------------------------------------------------------------------
+    # STAGE 2 — Normalize and export
+    # -------------------------------------------------------------------------
+    logger.info("Starting Stage 2 — normalization and export")
+    try:
+        from pipeline.normalizer import normalize_all
+        from pipeline.deduplicator import deduplicate
+        from pipeline.exporter import export
+
+        examples = normalize_all()
+        deduped = deduplicate(examples)
+        dataset_stats = export(deduped)
+
+        logger.info(
+            f"Stage 2 complete — "
+            f"{dataset_stats.get('total_examples', 0)} examples exported"
+        )
+    except Exception as e:
+        logger.error(f"Stage 2 failed: {e}")
+
     # Summary
     logger.info(f"{'='*50}")
     logger.info(f"Collector complete — run_id: {run_id}")
