@@ -1,0 +1,26 @@
+name: Test Push Permission
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Test write permission
+        run: |
+          git config --global user.name "NepFakeV2 Bot"
+          git config --global user.email "nandansingh007@gmail.com"
+          echo "test $(date)" > raw/test_push.txt
+          git add raw/test_push.txt
+          git commit -m "test: verify push permission"
+          git push
+          echo "Push successful!"
