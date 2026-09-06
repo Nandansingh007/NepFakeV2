@@ -32,22 +32,23 @@ jobs:
         run: |
           python -m pipeline.collector
 
-      - name: Check for changes
-        id: check_changes
-        run: |
-          git diff --quiet raw/ || echo "changes=true" >> $GITHUB_OUTPUT
-
-      - name: Commit and push if changes
-        if: steps.check_changes.outputs.changes == 'true'
+      - name: Commit and push raw data
         run: |
           git config --global user.name "NepFakeV2 Bot"
           git config --global user.email "nandansingh007@gmail.com"
           git add raw/
-          TOTAL=$(python -c "import json; d=json.load(open('raw/stats_raw.json')); print(d['total_raw_articles'])")
-          git commit -m "data: daily scrape $(date +'%Y-%m-%d') — ${TOTAL} total articles"
-          git push
+          if git diff --staged --quiet; then
+            echo "No new articles — skipping commit"
+          else
+            TOTAL=$(python -c "import json; d=json.load(open('raw/stats_raw.json')); print(d['total_raw_articles'])")
+            git commit -m "data: daily scrape $(date +'%Y-%m-%d') — ${TOTAL} total articles"
+            git push
+          fi
 
-      - name: No changes found
-        if: steps.check_changes.outputs.changes != 'true'
-        run: |
-          echo "No new articles found today — skipping commit"
+      - name: Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 30
