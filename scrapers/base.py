@@ -68,8 +68,8 @@ class BaseScraper(ABC):
         self.worker_url = os.environ.get("CLOUDFLARE_WORKER_URL")
         self.proxy_secret = os.environ.get("PROXY_SECRET")
 
-        if self.worker_url:
-            self.logger.info("Cloudflare Worker proxy enabled")
+        if self.worker_url and self.source_name == "techpana":
+            self.logger.info("Cloudflare Worker proxy enabled for TechPana")
 
         # Load cutoff from last_run.json
         self.last_published_date = self._load_last_published_date()
