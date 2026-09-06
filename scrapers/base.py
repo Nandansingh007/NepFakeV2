@@ -11,9 +11,15 @@
 # Stage 1 principle:
 #   - Store everything as-is from website
 #   - published_date_iso is internal only — NOT stored in raw JSON
+#
+# Proxy strategy:
+#   - TechPana blocked by GitHub Actions IP (AWS datacenter)
+#   - Cloudflare Worker proxy used when CLOUDFLARE_WORKER_URL env set
+#   - Local runs use direct requests (residential IP works fine)
 # =============================================================================
 
 import json
+import os
 import time
 import logging
 from abc import ABC, abstractmethod
@@ -58,6 +64,13 @@ class BaseScraper(ABC):
         self.articles_scraped = 0
         self.articles_skipped = 0
 
+        # Cloudflare Worker proxy config — set via GitHub Actions secrets
+        self.worker_url = os.environ.get("CLOUDFLARE_WORKER_URL")
+        self.proxy_secret = os.environ.get("PROXY_SECRET")
+
+        if self.worker_url:
+            self.logger.info("Cloudflare Worker proxy enabled")
+
         # Load cutoff from last_run.json
         self.last_published_date = self._load_last_published_date()
 
@@ -71,12 +84,22 @@ class BaseScraper(ABC):
     # -------------------------------------------------------------------------
 
     def _build_session(self) -> requests.Session:
+        """
+        Build requests Session with browser-like headers.
+        Browser headers prevent basic bot detection.
+        Cloudflare Worker proxy handled in fetch_page().
+        """
         session = requests.Session()
+
+        # CHANGED: full browser headers instead of bot user agent
         session.headers.update({
-            "User-Agent": USER_AGENT,
-            "Accept-Language": "ne, en;q=0.9",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ne-NP,ne;q=0.9,en;q=0.8",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
         })
+
         retry = Retry(
             total=self.config["retry_attempts"],
             backoff_factor=self.config["retry_backoff_seconds"],
@@ -143,10 +166,10 @@ class BaseScraper(ABC):
             False → article is new, scrape it
         """
         if not self.last_published_date:
-            return False  # first run — scrape everything
+            return False
 
         if not published_date_iso:
-            return False  # no date found — scrape to be safe
+            return False
 
         return published_date_iso <= self.last_published_date
 
@@ -155,23 +178,56 @@ class BaseScraper(ABC):
     # -------------------------------------------------------------------------
 
     def fetch_page(self, url: str) -> Optional[str]:
-        """Fetch page HTML. Returns None on failure."""
+        """
+        Fetch page HTML.
+
+        For TechPana URLs in CI (GitHub Actions):
+            Routes through Cloudflare Worker proxy
+            TechPana blocks GitHub Actions datacenter IPs
+            Cloudflare IPs are trusted by TechPana
+
+        For all other URLs or local runs:
+            Direct request using residential IP
+        """
         try:
-            self.logger.debug(f"Fetching: {url}")
-            response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+            # CHANGED: Use Cloudflare Worker for TechPana in CI
+            if (
+                self.worker_url
+                and self.proxy_secret
+                and "techpana.com" in url
+            ):
+                self.logger.debug(f"Cloudflare proxy: {url}")
+                response = self.session.get(
+                    self.worker_url,
+                    headers={
+                        "X-Proxy-Secret": self.proxy_secret,
+                        "X-Target-URL":   url,
+                    },
+                    timeout=REQUEST_TIMEOUT,
+                )
+            else:
+                # Direct request — local runs or non-TechPana URLs
+                self.logger.debug(f"Direct fetch: {url}")
+                response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+
             response.raise_for_status()
             response.encoding = "utf-8"
             time.sleep(self.config["rate_limit_seconds"])
             return response.text
 
         except requests.exceptions.HTTPError as e:
-            self.logger.error(f"HTTP error fetching {url}: {e}")
+            # CHANGED: handle 503 gracefully
+            if e.response is not None and e.response.status_code == 503:
+                self.logger.warning(f"503 rate limit: {url} — skipping")
+            else:
+                self.logger.error(f"HTTP error fetching {url}: {e}")
+            return None
+        except requests.exceptions.ReadTimeout:
+            # CHANGED: handle read timeout gracefully
+            self.logger.warning(f"Read timeout: {url} — skipping")
             return None
         except requests.exceptions.ConnectionError as e:
             self.logger.error(f"Connection error fetching {url}: {e}")
-            return None
-        except requests.exceptions.Timeout:
-            self.logger.error(f"Timeout fetching {url}")
             return None
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Request failed for {url}: {e}")
@@ -201,7 +257,6 @@ class BaseScraper(ABC):
 
         new_records = [self._article_to_dict(a) for a in articles]
 
-        # Deduplicate by source_url within same run
         all_records = existing + new_records
         seen_urls = set()
         deduplicated = []
@@ -230,11 +285,12 @@ class BaseScraper(ABC):
             "title":            article.title,
             "body_text":        article.body_text,
             "raw_verdict_text": article.raw_verdict_text,
-            "date_published":   article.date_published,  # raw string as-is
+            "date_published":   article.date_published,
             "date_scraped":     article.date_scraped,
             "author":           article.author,
             "category":         article.category,
             "external_links":   article.external_links,
+            "annotator_notes":  article.annotator_notes,
         }
 
     # -------------------------------------------------------------------------
@@ -245,12 +301,6 @@ class BaseScraper(ABC):
         """
         Find the maximum published_date_iso from scraped articles.
         Used by collector.py to update last_published_date in last_run.json.
-
-        Args:
-            articles: List of scraped RawArticle
-
-        Returns:
-            ISO date string of most recent article, or None
         """
         dates = [
             a.published_date_iso
@@ -283,14 +333,12 @@ class BaseScraper(ABC):
 
             links = self.get_article_links(page_url)
 
-            # Stop: empty page
             if not links:
                 self.logger.info(
                     f"Page {page} returned no articles — stopping"
                 )
                 break
 
-            # Stop: WordPress redirect loop
             new_links = [l for l in links if l not in seen_page_urls]
             if not new_links:
                 self.logger.info(
@@ -300,18 +348,15 @@ class BaseScraper(ABC):
 
             seen_page_urls.update(links)
 
-            # Scrape each new article
             page_articles = []
             for url in new_links:
 
-                # Fetch and scrape article
                 article = self.scrape_article(url)
 
                 if article is None:
                     self.articles_skipped += 1
                     continue
 
-                # Cutoff check using published_date_iso
                 if self.is_before_cutoff(article.published_date_iso):
                     self.logger.info(
                         f"Cutoff reached — article date "

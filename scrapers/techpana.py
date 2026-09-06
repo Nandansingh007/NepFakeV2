@@ -136,10 +136,6 @@ class TechpanaScraper(BaseScraper):
         self.base_url = self.config["base_url"]
 
     def get_article_links(self, page_url: str) -> list[str]:
-        """
-        Extract Nepali fact-check article URLs from listing page.
-        Excludes English articles.
-        """
         html = self.fetch_page(page_url)
         if not html:
             return []
@@ -147,8 +143,10 @@ class TechpanaScraper(BaseScraper):
         soup = BeautifulSoup(html, "lxml")
         links = []
 
-        for h3 in soup.find_all("h3"):
-            a = h3.find("a", href=True)
+        # FIXED: TechPana now uses div.single_row-title with browser headers
+        # Strategy 1: single_row-title divs (new structure)
+        for div in soup.find_all("div", class_="single_row-title"):
+            a = div.find("a", href=True)
             if a:
                 href = a["href"]
                 if href.startswith("http"):
@@ -156,6 +154,18 @@ class TechpanaScraper(BaseScraper):
                 else:
                     links.append(urljoin("https://techpana.com", href))
 
+        # Strategy 2: h3 tags (old structure fallback)
+        if not links:
+            for h3 in soup.find_all("h3"):
+                a = h3.find("a", href=True)
+                if a:
+                    href = a["href"]
+                    if href.startswith("http"):
+                        links.append(href)
+                    else:
+                        links.append(urljoin("https://techpana.com", href))
+
+        # Filter to fact-check article URLs only
         links = [
             l for l in links
             if re.search(r"/\d{4}/\d+/", l)
@@ -163,6 +173,7 @@ class TechpanaScraper(BaseScraper):
             and "/english/" not in l
         ]
 
+        # Deduplicate preserving order
         seen = set()
         unique_links = []
         for l in links:

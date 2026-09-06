@@ -26,6 +26,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run collector
+        env:
+          CLOUDFLARE_WORKER_URL: ${{ secrets.CLOUDFLARE_WORKER_URL }}
+          PROXY_SECRET: ${{ secrets.PROXY_SECRET }}
         run: |
           python -m pipeline.collector
 
