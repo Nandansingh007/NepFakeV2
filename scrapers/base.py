@@ -64,6 +64,25 @@ class BaseScraper(ABC):
         self.articles_scraped = 0
         self.articles_skipped = 0
 
+        # Create FlareSolverr session for TechPana (reuse across requests)
+        if self.source_name == "techpana":
+            try:
+                requests.post(
+                    'http://localhost:8191/v1',
+                    json={
+                        'cmd': 'sessions.create',
+                        'session': 'techpana_session',
+                    },
+                    timeout=30,
+                )
+                self.logger.info("FlareSolverr session created")
+                self.use_flaresolverr = True
+            except Exception:
+                self.use_flaresolverr = False
+                self.logger.info("FlareSolverr not available — direct requests")
+        else:
+            self.use_flaresolverr = False
+
         # Load cutoff from last_run.json
         self.last_published_date = self._load_last_published_date()
 
@@ -173,21 +192,23 @@ class BaseScraper(ABC):
     def fetch_page(self, url: str) -> Optional[str]:
         """
         Fetch page HTML.
-        TechPana: uses FlareSolverr to bypass Cloudflare bot protection.
-        All other sources: direct request.
+        TechPana listing pages: FlareSolverr with session reuse (bypass Cloudflare).
+        TechPana article pages: direct requests (faster).
+        All other sources: direct requests.
         """
         try:
-            if "techpana.com" in url:
-                # FlareSolverr runs real Chrome to bypass Cloudflare
+            # FlareSolverr only for TechPana listing pages
+            if self.use_flaresolverr and "techpana.com" in url and "page=" in url:
                 self.logger.debug(f"FlareSolverr fetch: {url}")
                 response = requests.post(
                     'http://localhost:8191/v1',
                     json={
                         'cmd': 'request.get',
                         'url': url,
-                        'maxTimeout': 60000,
+                        'maxTimeout': 120000,
+                        'session': 'techpana_session',
                     },
-                    timeout=70,
+                    timeout=130,
                 )
                 data = response.json()
                 if data.get('status') == 'ok':
@@ -200,6 +221,7 @@ class BaseScraper(ABC):
                     )
                     return None
             else:
+                # Direct request — article pages and all other sources
                 self.logger.debug(f"Direct fetch: {url}")
                 response = self.session.get(url, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status()
