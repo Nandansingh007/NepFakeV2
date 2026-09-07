@@ -1,5 +1,5 @@
 {
-  "total_raw_articles": 923,
+  "total_raw_articles": 264,
   "by_source": {
     "techpana": {
       "total": 264,
@@ -13,20 +13,8 @@
       "oldest_article": "",
       "newest_article": "",
       "empty_verdicts": 1
-    },
-    "nepalfactcheck": {
-      "total": 659,
-      "verdict_distribution": {
-        "भ्रामक सूचना": 348,
-        "मिथ्या सूचना": 234,
-        "सही सूचना": 59,
-        "अपुष्ट सूचना": 18
-      },
-      "oldest_article": "2020-03-13",
-      "newest_article": "2026-09-03",
-      "empty_verdicts": 0
     }
   },
-  "last_updated": "2026-09-06T06:50:12.730509+00:00",
-  "run_id": "run_20260906_064957"
+  "last_updated": "2026-09-07T04:31:43.182854+00:00",
+  "run_id": "run_20260907_043137"
 }
