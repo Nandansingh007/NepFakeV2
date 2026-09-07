@@ -172,13 +172,29 @@ class BaseScraper(ABC):
 
     def fetch_page(self, url: str) -> Optional[str]:
         """
-        Fetch page HTML using direct requests.
-        Tailscale exit node routes all traffic through residential IP.
-        TechPana Cloudflare protection bypassed at network level.
+        Fetch page HTML.
+        TechPana: uses ZenRows API to bypass Cloudflare bot protection.
+        All other sources: direct request.
         """
         try:
-            self.logger.debug(f"Fetching: {url}")
-            response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+            zenrows_key = os.environ.get("ZENROWS_API_KEY")
+
+            if zenrows_key and "techpana.com" in url:
+                self.logger.debug(f"ZenRows fetch: {url}")
+                from zenrows import ZenRowsClient
+                client = ZenRowsClient(zenrows_key)
+                response = client.get(
+                    url,
+                    params={
+                        "js_render": "true",
+                        "premium_proxy": "true",
+                        "wait": "3000",
+                    }
+                )
+            else:
+                self.logger.debug(f"Direct fetch: {url}")
+                response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+
             response.raise_for_status()
             response.encoding = "utf-8"
             time.sleep(self.config["rate_limit_seconds"])
@@ -198,6 +214,9 @@ class BaseScraper(ABC):
             return None
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Request failed for {url}: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"ZenRows error fetching {url}: {e}")
             return None
 
     # -------------------------------------------------------------------------
