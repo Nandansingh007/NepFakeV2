@@ -18,6 +18,12 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --exit-node=${{ secrets.TAILSCALE_EXIT_NODE }} --exit-node-allow-lan-access
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -32,9 +38,6 @@ jobs:
         run: mkdir -p logs
 
       - name: Run collector
-        env:
-          CLOUDFLARE_WORKER_URL: ${{ secrets.CLOUDFLARE_WORKER_URL }}
-          PROXY_SECRET: ${{ secrets.PROXY_SECRET }}
         run: |
           python -m pipeline.collector
 

@@ -64,18 +64,6 @@ class BaseScraper(ABC):
         self.articles_scraped = 0
         self.articles_skipped = 0
 
-        # Cloudflare Worker proxy config — set via GitHub Actions secrets
-        self.worker_url = os.environ.get("CLOUDFLARE_WORKER_URL")
-        self.proxy_secret = os.environ.get("PROXY_SECRET")
-
-        if self.source_name == "techpana":
-            self.logger.info(f"CLOUDFLARE_WORKER_URL set: {bool(self.worker_url)}")
-            self.logger.info(f"PROXY_SECRET set: {bool(self.proxy_secret)}")
-            if self.worker_url:
-                self.logger.info("Cloudflare Worker proxy enabled for TechPana")
-            else:
-                self.logger.warning("Cloudflare Worker proxy NOT enabled — missing env vars")
-
         # Load cutoff from last_run.json
         self.last_published_date = self._load_last_published_date()
 
@@ -184,51 +172,25 @@ class BaseScraper(ABC):
 
     def fetch_page(self, url: str) -> Optional[str]:
         """
-        Fetch page HTML.
-
-        For TechPana URLs in CI (GitHub Actions):
-            Routes through Cloudflare Worker proxy
-            TechPana blocks GitHub Actions datacenter IPs
-            Cloudflare IPs are trusted by TechPana
-
-        For all other URLs or local runs:
-            Direct request using residential IP
+        Fetch page HTML using direct requests.
+        Tailscale exit node routes all traffic through residential IP.
+        TechPana Cloudflare protection bypassed at network level.
         """
         try:
-            # CHANGED: Use Cloudflare Worker for TechPana in CI
-            if (
-                self.worker_url
-                and self.proxy_secret
-                and "techpana.com" in url
-            ):
-                self.logger.debug(f"Cloudflare proxy: {url}")
-                response = self.session.get(
-                    self.worker_url,
-                    headers={
-                        "X-Proxy-Secret": self.proxy_secret,
-                        "X-Target-URL":   url,
-                    },
-                    timeout=REQUEST_TIMEOUT,
-                )
-            else:
-                # Direct request — local runs or non-TechPana URLs
-                self.logger.debug(f"Direct fetch: {url}")
-                response = self.session.get(url, timeout=REQUEST_TIMEOUT)
-
+            self.logger.debug(f"Fetching: {url}")
+            response = self.session.get(url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             response.encoding = "utf-8"
             time.sleep(self.config["rate_limit_seconds"])
             return response.text
 
         except requests.exceptions.HTTPError as e:
-            # CHANGED: handle 503 gracefully
             if e.response is not None and e.response.status_code == 503:
                 self.logger.warning(f"503 rate limit: {url} — skipping")
             else:
                 self.logger.error(f"HTTP error fetching {url}: {e}")
             return None
         except requests.exceptions.ReadTimeout:
-            # CHANGED: handle read timeout gracefully
             self.logger.warning(f"Read timeout: {url} — skipping")
             return None
         except requests.exceptions.ConnectionError as e:
