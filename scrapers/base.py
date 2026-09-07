@@ -198,7 +198,7 @@ class BaseScraper(ABC):
         """
         try:
             # FlareSolverr only for TechPana listing pages
-            if self.use_flaresolverr and "techpana.com" in url and "page=" in url:
+            if self.use_flaresolverr and "techpana.com" in url:
                 self.logger.debug(f"FlareSolverr fetch: {url}")
                 response = requests.post(
                     'http://localhost:8191/v1',
