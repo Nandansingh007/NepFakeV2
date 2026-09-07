@@ -173,32 +173,39 @@ class BaseScraper(ABC):
     def fetch_page(self, url: str) -> Optional[str]:
         """
         Fetch page HTML.
-        TechPana: uses ZenRows API to bypass Cloudflare bot protection.
+        TechPana: uses FlareSolverr to bypass Cloudflare bot protection.
         All other sources: direct request.
         """
         try:
-            zenrows_key = os.environ.get("ZENROWS_API_KEY")
-
-            if zenrows_key and "techpana.com" in url:
-                self.logger.debug(f"ZenRows fetch: {url}")
-                from zenrows import ZenRowsClient
-                client = ZenRowsClient(zenrows_key)
-                response = client.get(
-                    url,
-                    params={
-                        "js_render": "true",
-                        "premium_proxy": "true",
-                        "wait": "3000",
-                    }
+            if "techpana.com" in url:
+                # FlareSolverr runs real Chrome to bypass Cloudflare
+                self.logger.debug(f"FlareSolverr fetch: {url}")
+                response = requests.post(
+                    'http://localhost:8191/v1',
+                    json={
+                        'cmd': 'request.get',
+                        'url': url,
+                        'maxTimeout': 60000,
+                    },
+                    timeout=70,
                 )
+                data = response.json()
+                if data.get('status') == 'ok':
+                    html = data['solution']['response']
+                    time.sleep(self.config["rate_limit_seconds"])
+                    return html
+                else:
+                    self.logger.error(
+                        f"FlareSolverr error: {data.get('message')}"
+                    )
+                    return None
             else:
                 self.logger.debug(f"Direct fetch: {url}")
                 response = self.session.get(url, timeout=REQUEST_TIMEOUT)
-
-            response.raise_for_status()
-            response.encoding = "utf-8"
-            time.sleep(self.config["rate_limit_seconds"])
-            return response.text
+                response.raise_for_status()
+                response.encoding = "utf-8"
+                time.sleep(self.config["rate_limit_seconds"])
+                return response.text
 
         except requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 503:
@@ -216,7 +223,7 @@ class BaseScraper(ABC):
             self.logger.error(f"Request failed for {url}: {e}")
             return None
         except Exception as e:
-            self.logger.error(f"ZenRows error fetching {url}: {e}")
+            self.logger.error(f"FlareSolverr error fetching {url}: {e}")
             return None
 
     # -------------------------------------------------------------------------

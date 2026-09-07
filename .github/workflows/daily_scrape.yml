@@ -18,6 +18,22 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Start FlareSolverr
+        run: |
+          docker run -d \
+            --name flaresolverr \
+            -p 8191:8191 \
+            -e LOG_LEVEL=info \
+            ghcr.io/flaresolverr/flaresolverr:latest
+          sleep 15
+          echo "FlareSolverr started"
+
+      - name: Test FlareSolverr
+        run: |
+          curl -X POST http://localhost:8191/v1 \
+            -H "Content-Type: application/json" \
+            -d '{"cmd":"request.get","url":"https://techpana.com/factcheck/?tab=nepali&page=1","maxTimeout":60000}'
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -32,8 +48,6 @@ jobs:
         run: mkdir -p logs
 
       - name: Run collector
-        env:
-          ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
         run: |
           python -m pipeline.collector
 
