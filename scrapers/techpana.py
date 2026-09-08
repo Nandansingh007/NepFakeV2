@@ -82,13 +82,23 @@ def parse_bs_date(date_str: str) -> Optional[str]:
 
 # FIXED: added informal Nepali verdict words
 VERDICT_KEYWORDS = {
+    # Standard Nepali
     "मिथ्या": "मिथ्या",
     "भ्रामक": "भ्रामक",
     "अपुष्ट": "अपुष्ट",
     "सही":    "सही",
+    # Informal Nepali
     "झुटो":   "मिथ्या",   # informal "false"
     "साँचो":  "सही",      # informal "true"
-    "गलत":    "मिथ्या",   # informal "wrong"
+    "गलत":    "मिथ्या",   # "wrong"
+    "सत्य":   "सही",      # formal "true"
+    "असत्य":  "मिथ्या",   # formal "untrue"
+    "भ्रम":   "भ्रामक",   # "confusion/misleading"
+    # English (TechPana sometimes publishes English articles)
+    "misleading": "भ्रामक",
+    "false":      "मिथ्या",
+    "unverified": "अपुष्ट",
+    "verified":   "सही",
 }
 
 IMAGE_VERDICT_MAP = {
