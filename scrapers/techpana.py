@@ -94,11 +94,6 @@ VERDICT_KEYWORDS = {
     "सत्य":   "सही",      # formal "true"
     "असत्य":  "मिथ्या",   # formal "untrue"
     "भ्रम":   "भ्रामक",   # "confusion/misleading"
-    # English (TechPana sometimes publishes English articles)
-    "misleading": "भ्रामक",
-    "false":      "मिथ्या",
-    "unverified": "अपुष्ट",
-    "verified":   "सही",
 }
 
 IMAGE_VERDICT_MAP = {
@@ -107,6 +102,43 @@ IMAGE_VERDICT_MAP = {
     "unverified": "अपुष्ट",
     "verified":   "सही",
 }
+
+# Sidebar markers — strip content after these to avoid false positives
+SIDEBAR_MARKERS = [
+    "सम्बन्धित समाचार",   # related news
+    "ट्रेन्डिङ समाचार",    # trending news
+    "पछिल्लो अध्यावधिक",  # last updated
+    "टिप्पणीहरू",          # comments
+    "पछिल्ला अपडेट",      # latest updates
+]
+
+# Factcheck indicators — article must have one to be included
+FACTCHECK_INDICATORS = [
+    "फ्याक्टचेक",
+    "टेकपाना फ्याक्टचेक",
+    "fact check",
+    "factcheck",
+    "fact-check",
+    "fact-check:",
+    "निष्कर्ष",
+    "misleading",
+]
+
+def strip_sidebar(text: str) -> str:
+    """Remove sidebar/related content to prevent false positives."""
+    for marker in SIDEBAR_MARKERS:
+        idx = text.find(marker)
+        if idx != -1:
+            text = text[:idx]
+    return text
+
+def is_factcheck_article(title: str, body_text: str) -> bool:
+    """
+    Check if article is a fact-check article.
+    Filters out regular news articles that slip through listing page.
+    """
+    combined = (title + " " + body_text[:500]).lower()
+    return any(ind.lower() in combined for ind in FACTCHECK_INDICATORS)
 
 
 def extract_verdict_from_image(img_url: str) -> Optional[str]:
@@ -120,13 +152,28 @@ def extract_verdict_from_image(img_url: str) -> Optional[str]:
 
 
 def extract_verdict_from_body(body_text: str) -> Optional[str]:
+    """
+    Extract verdict from body text.
+    Strips sidebar first, then searches conclusion section,
+    then full cleaned body.
+    """
     if not body_text:
         return None
-    conclusion_idx = body_text.find("निष्कर्ष")
-    search_text = body_text[conclusion_idx:] if conclusion_idx != -1 else body_text
+
+    # Strip sidebar content first
+    clean_text = strip_sidebar(body_text)
+
+    # Search conclusion section first
+    conclusion_idx = clean_text.find("निष्कर्ष")
+    if conclusion_idx != -1:
+        search_text = clean_text[conclusion_idx:]
+    else:
+        search_text = clean_text
+
     for keyword, verdict in VERDICT_KEYWORDS.items():
         if keyword in search_text:
             return verdict
+
     return None
 
 
