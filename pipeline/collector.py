@@ -63,7 +63,11 @@ def compute_raw_stats() -> dict:
     Compute statistics from all raw JSON files.
     Called after every scrape run to update stats_raw.json.
     Handles both raw BS date strings and ISO date strings.
+    BS dates (TechPana) are converted to ISO via normalize_date()
+    so oldest/newest article dates are consistent across sources.
     """
+    from pipeline.normalizer import normalize_date
+
     stats = {
         "total_raw_articles": 0,
         "by_source": {},
@@ -92,15 +96,17 @@ def compute_raw_stats() -> dict:
             v = r.get("raw_verdict_text", "").strip() or "EMPTY"
             verdicts[v] = verdicts.get(v, 0) + 1
 
-        # Date range — only ISO dates for stats
-        # Raw BS strings are not counted here
-        dates = sorted([
-            r.get("date_published", "")[:10]
-            for r in all_articles
-            if r.get("date_published", "")
-            and r.get("date_published", "")[0].isdigit()
-            and len(r.get("date_published", "")) >= 10
-        ])
+        # Date range — BS and ISO dates both converted to ISO
+        # normalize_date() handles both formats
+        dates = []
+        for r in all_articles:
+            raw_date = r.get("date_published", "")
+            if not raw_date:
+                continue
+            iso = normalize_date(raw_date)
+            if iso:
+                dates.append(iso[:10])
+        dates = sorted(dates)
 
         stats["by_source"][source_name] = {
             "total": len(all_articles),
@@ -245,6 +251,13 @@ def run_collector() -> None:
             f"Stage 2 complete — "
             f"{dataset_stats.get('total_examples', 0)} examples exported"
         )
+
+        from pipeline.update_readme import update_readme_stats
+        if update_readme_stats():
+            logger.info("README.md stats updated")
+        else:
+            logger.warning("README.md stats update skipped — check markers")
+
     except Exception as e:
         logger.error(f"Stage 2 failed: {e}")
 

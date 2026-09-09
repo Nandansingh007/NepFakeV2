@@ -12,7 +12,7 @@ NepFakeV2 is the first real, non-synthetic Nepali fact-checking dataset. It is b
 
 All existing Nepali fake news datasets fail because they use either machine-translated US political content or LLM-generated text. NepFakeV2 breaks this cycle by sourcing directly from two active IFCN-adjacent Nepali fact-checkers.
 
-The dataset is auto-updated daily. For live statistics see [`data/stats.json`](data/stats.json) and [`raw/stats_raw.json`](raw/stats_raw.json).
+The dataset is auto-updated daily.
 
 ---
 
@@ -60,6 +60,9 @@ Each example contains:
 5. **Auto-commit** — `data/nepfakev2.csv`, `data/nepfakev2.json` and `data/stats.json` committed to GitHub automatically after every run
 
 ---
+
+<!-- STATS_START -->
+<!-- STATS_END -->
 
 ## Limitations
 
