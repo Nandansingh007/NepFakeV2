@@ -12,7 +12,6 @@ try:
     from scrapers.base import BaseScraper
     from scrapers.techpana import TechpanaScraper
     from scrapers.nepalfactcheck import NepalfactcheckScraper
-    from scrapers.bbc_nepali import BBCNepaliScraper
 except ImportError as e:
     errors.append(f"Import error: {e}")
 
@@ -36,7 +35,6 @@ except Exception as e:
 try:
     from scrapers.techpana import parse_bs_date, BS_MONTHS
 
-    # Test BS date conversion
     result = parse_bs_date("भदौ ९, २०८३")
     assert result == "2026-08-25", f"Expected 2026-08-25, got {result}"
 
@@ -62,19 +60,21 @@ except Exception as e:
     errors.append(f"Verdict extraction error: {e}")
 
 # --- Test utils ---
+# Note: is_devanagari() lives in config.settings — not utils.helpers
 try:
-    from utils.helpers import normalize_url, url_hash, title_hash, is_devanagari
+    from utils.helpers import normalize_url, url_hash, title_hash
+    from config.settings import is_devanagari
 
     # normalize_url
     assert normalize_url("https://techpana.com/2026/158464/slug?tab=nepali") == \
            "https://techpana.com/2026/158464/slug"
 
-    # url_hash stability
+    # url_hash stability across query params
     h1 = url_hash("https://techpana.com/2026/158464/slug?tab=nepali")
     h2 = url_hash("https://techpana.com/2026/158464/slug")
     assert h1 == h2, "url_hash not stable across query params"
 
-    # title_hash
+    # title_hash stability across whitespace
     h1 = title_hash("भाइरल भिडिओ भ्रामक")
     h2 = title_hash("भाइरल भिडिओ भ्रामक  ")
     assert h1 == h2, "title_hash not stable across whitespace"

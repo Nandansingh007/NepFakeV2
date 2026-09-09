@@ -14,12 +14,11 @@
 #
 # Proxy strategy:
 #   - TechPana blocked by GitHub Actions IP (AWS datacenter)
-#   - Cloudflare Worker proxy used when CLOUDFLARE_WORKER_URL env set
+#   - FlareSolverr Docker used in GitHub Actions for Cloudflare bypass
 #   - Local runs use direct requests (residential IP works fine)
 # =============================================================================
 
 import json
-import os
 import time
 import logging
 from abc import ABC, abstractmethod
@@ -45,7 +44,10 @@ class BaseScraper(ABC):
     """
     Abstract base class for all NepFakeV2 scrapers.
     Subclasses must implement:
-        - get_article_links(page_url) → list[str]
+        - get_article_links(page_url) → list[tuple[str, str]]
+          Returns (url, date_iso) pairs — date_iso used for cutoff
+          before fetching the article. date_iso may be approximate
+          (e.g. YYYY-MM-01 from URL) — good enough for cutoff.
         - scrape_article(url) → RawArticle
     """
 
@@ -77,9 +79,12 @@ class BaseScraper(ABC):
                 )
                 self.logger.info("FlareSolverr session created")
                 self.use_flaresolverr = True
-            except Exception:
+            except Exception as e:
                 self.use_flaresolverr = False
-                self.logger.info("FlareSolverr not available — direct requests")
+                self.logger.warning(
+                    f"FlareSolverr session creation failed: {e} — "
+                    f"falling back to direct requests"
+                )
         else:
             self.use_flaresolverr = False
 
@@ -97,15 +102,14 @@ class BaseScraper(ABC):
 
     def _build_session(self) -> requests.Session:
         """
-        Build requests Session with browser-like headers.
-        Browser headers prevent basic bot detection.
-        Cloudflare Worker proxy handled in fetch_page().
+        Build requests Session with research bot user agent.
+        Non-UA headers are standard and do not misrepresent identity.
+        Cloudflare bypass handled via FlareSolverr in fetch_page().
         """
         session = requests.Session()
 
-        # CHANGED: full browser headers instead of bot user agent
         session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+            "User-Agent": USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "ne-NP,ne;q=0.9,en;q=0.8",
             "Connection": "keep-alive",
@@ -166,24 +170,25 @@ class BaseScraper(ABC):
     # INCREMENTAL — CUTOFF CHECK
     # -------------------------------------------------------------------------
 
-    def is_before_cutoff(self, published_date_iso: str) -> bool:
+    def is_before_cutoff(self, date_iso: str) -> bool:
         """
-        Check if article is old (should be skipped).
+        Check if a date is at or before the cutoff (should be skipped).
+        Called with listing-page date BEFORE fetching the article.
 
         Args:
-            published_date_iso: ISO date "YYYY-MM-DD" from article
+            date_iso: ISO date "YYYY-MM-DD" from listing page
 
         Returns:
-            True  → article is old, stop pagination
-            False → article is new, scrape it
+            True  → date is old, stop pagination
+            False → date is new, proceed to fetch article
         """
         if not self.last_published_date:
             return False
 
-        if not published_date_iso:
+        if not date_iso:
             return False
 
-        return published_date_iso <= self.last_published_date
+        return date_iso <= self.last_published_date
 
     # -------------------------------------------------------------------------
     # HTTP REQUEST
@@ -193,7 +198,7 @@ class BaseScraper(ABC):
         """
         Fetch page HTML.
         TechPana listing pages: FlareSolverr with session reuse (bypass Cloudflare).
-        TechPana article pages: direct requests (faster).
+        TechPana article pages: direct requests (faster, not Cloudflare-blocked).
         All other sources: direct requests.
         """
         try:
@@ -334,7 +339,9 @@ class BaseScraper(ABC):
         """
         Paginate through all pages until:
         1. Empty page — end of site
-        2. Article published_date_iso <= last_published_date — cutoff reached
+        2. Listing-page date <= last_published_date — cutoff reached
+           (cutoff checked BEFORE fetching article, saving one HTTP request
+           per old article)
         3. WordPress redirect loop detected
         """
         all_articles = []
@@ -346,43 +353,49 @@ class BaseScraper(ABC):
             page_url = self.config["list_url_template"].format(page=page)
             self.logger.info(f"Scraping page {page}: {page_url}")
 
-            links = self.get_article_links(page_url)
+            # get_article_links returns (url, date_iso) tuples
+            # date_iso is extracted from listing page — no article fetch needed
+            link_tuples = self.get_article_links(page_url)
 
-            if not links:
+            if not link_tuples:
                 self.logger.info(
                     f"Page {page} returned no articles — stopping"
                 )
                 break
 
-            new_links = [l for l in links if l not in seen_page_urls]
-            if not new_links:
+            # WordPress redirect loop detection — check URLs only
+            new_urls = [url for url, _ in link_tuples if url not in seen_page_urls]
+            if not new_urls:
                 self.logger.info(
                     f"Page {page} — WordPress redirect loop detected, stopping"
                 )
                 break
 
-            seen_page_urls.update(links)
+            seen_page_urls.update(url for url, _ in link_tuples)
 
             page_articles = []
-            for url in new_links:
+            for url, date_iso in link_tuples:
+                if url not in {a.source_url for a in all_articles}:
 
-                article = self.scrape_article(url)
+                    # Cutoff check BEFORE fetching — saves one HTTP request
+                    # per old article (important with crawl-delay=10s)
+                    if self.is_before_cutoff(date_iso):
+                        self.logger.info(
+                            f"Cutoff reached — listing date "
+                            f"{date_iso} <= "
+                            f"{self.last_published_date} — stopping"
+                        )
+                        stop = True
+                        break
 
-                if article is None:
-                    self.articles_skipped += 1
-                    continue
+                    article = self.scrape_article(url)
 
-                if self.is_before_cutoff(article.published_date_iso):
-                    self.logger.info(
-                        f"Cutoff reached — article date "
-                        f"{article.published_date_iso} <= "
-                        f"{self.last_published_date} — stopping"
-                    )
-                    stop = True
-                    break
+                    if article is None:
+                        self.articles_skipped += 1
+                        continue
 
-                page_articles.append(article)
-                self.articles_scraped += 1
+                    page_articles.append(article)
+                    self.articles_scraped += 1
 
             all_articles.extend(page_articles)
             self.logger.info(
@@ -403,15 +416,24 @@ class BaseScraper(ABC):
     # -------------------------------------------------------------------------
 
     @abstractmethod
-    def get_article_links(self, page_url: str) -> list[str]:
-        """Extract article URLs from a listing page."""
+    def get_article_links(self, page_url: str) -> list[tuple[str, str]]:
+        """
+        Extract article URLs and listing-page dates from a listing page.
+
+        Returns:
+            List of (url, date_iso) tuples.
+            date_iso: "YYYY-MM-DD" extracted from listing page HTML or URL.
+                      May be approximate (e.g. "YYYY-MM-01" from URL path).
+                      Used for cutoff check only — never stored.
+                      Return "" if date unavailable — article will be fetched.
+        """
         pass
 
     @abstractmethod
     def scrape_article(self, url: str) -> Optional[RawArticle]:
         """
         Scrape a single article.
-        Must set article.published_date_iso for cutoff check.
+        Must set article.published_date_iso for max-date tracking.
         Must set article.date_published as raw string for storage.
         """
         pass

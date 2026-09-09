@@ -48,12 +48,15 @@ if 'example_id' in df.columns:
     if dupes > 0:
         errors.append(f"{dupes} duplicate example_ids")
 
-# Valid verdict labels
+# Valid verdict labels — CSV must NOT contain -1 (filtered by exporter)
 if 'verdict_label' in df.columns:
-    valid = {-1, 0, 1, 2}
+    valid = {0, 1, 2}
     invalid = df[~df['verdict_label'].isin(valid)]
     if len(invalid) > 0:
-        errors.append(f"{len(invalid)} invalid verdict labels")
+        errors.append(
+            f"{len(invalid)} invalid verdict labels in CSV "
+            f"(including -1 UNKNOWN — should have been filtered by exporter)"
+        )
 
 # Nepali script coverage
 if 'is_native_nepali' in df.columns:
@@ -61,13 +64,18 @@ if 'is_native_nepali' in df.columns:
     if nepali_pct < 90:
         warnings.append(f"Only {nepali_pct:.1f}% Nepali script — expected 90%+")
 
-# Source distribution
+# Source distribution — only active sources
 if 'source_name' in df.columns:
     sources = df['source_name'].value_counts()
     expected_sources = ['techpana', 'nepalfactcheck']
     for s in expected_sources:
         if s not in sources:
             errors.append(f"Source missing from dataset: {s}")
+    # No dead sources
+    dead_sources = ['nepalcheck', 'bbc_nepali', 'kantipur']
+    for s in dead_sources:
+        if s in sources.index:
+            errors.append(f"Dead source found in dataset: {s}")
 
 # No empty evidence text
 if 'evidence_text' in df.columns:
@@ -92,11 +100,20 @@ else:
     with open(stats_path, "r", encoding="utf-8") as f:
         stats = json.load(f)
 
-    # Total matches CSV
+    # total_examples matches exported CSV (not including unknowns)
     if stats.get('total_examples') != len(df):
         errors.append(
-            f"stats.json total ({stats.get('total_examples')}) != CSV ({len(df)})"
+            f"stats.json total_examples ({stats.get('total_examples')}) != CSV ({len(df)})"
         )
+
+    # total_including_unknown >= total_examples
+    # (only present after pipeline runs with updated exporter.py)
+    if 'total_including_unknown' in stats:
+        if stats['total_including_unknown'] < stats.get('total_examples', 0):
+            errors.append(
+                f"total_including_unknown ({stats['total_including_unknown']}) "
+                f"< total_examples ({stats.get('total_examples')}) — impossible"
+            )
 
     # Last updated is recent
     last_updated = stats.get('last_updated', '')
@@ -112,8 +129,9 @@ else:
 
     # Required keys
     required_keys = [
-        'total_examples', 'label_distribution', 'source_distribution',
-        'topic_distribution', 'date_range', 'language', 'quality'
+        'total_examples', 'label_distribution',
+        'source_distribution', 'topic_distribution', 'date_range',
+        'language', 'quality'
     ]
     for key in required_keys:
         if key not in stats:

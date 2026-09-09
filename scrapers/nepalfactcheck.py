@@ -112,6 +112,18 @@ def extract_verdict_from_body(body_text: str) -> Optional[str]:
     return None
 
 
+def date_iso_from_url(url: str) -> str:
+    """
+    Extract approximate date from NepalFactCheck URL pattern /YYYY/MM/.
+    Returns "YYYY-MM-01" — good enough for cutoff comparison.
+    Returns "" if pattern not found.
+    """
+    match = re.search(r"/(\d{4})/(\d{2})/", url)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}-01"
+    return ""
+
+
 # =============================================================================
 # NEPALFACTCHECK SCRAPER
 # =============================================================================
@@ -127,17 +139,23 @@ class NepalfactcheckScraper(BaseScraper):
         super().__init__("nepalfactcheck")
         self.base_url = self.config["base_url"]
 
-    def get_article_links(self, page_url: str) -> list[str]:
+    def get_article_links(self, page_url: str) -> list[tuple[str, str]]:
         """
-        Extract article URLs from NepalFactCheck listing page.
+        Extract article URLs and listing-page dates from NepalFactCheck.
         WordPress — articles inside <article> tags or heading tags.
+
+        Returns:
+            List of (url, date_iso) tuples.
+            date_iso extracted from URL pattern /YYYY/MM/ as "YYYY-MM-01".
+            Approximate but sufficient for cutoff comparison.
+            Returns "" for date_iso if URL pattern not matched.
         """
         html = self.fetch_page(page_url)
         if not html:
             return []
 
         soup = BeautifulSoup(html, "lxml")
-        links = []
+        raw_links = []
 
         # Strategy 1: <article> tags
         for article_tag in soup.find_all("article"):
@@ -145,39 +163,36 @@ class NepalfactcheckScraper(BaseScraper):
                 href = a["href"]
                 if re.search(r"/\d{4}/\d{2}/", href):
                     if href.startswith("http"):
-                        links.append(href)
+                        raw_links.append(href)
                     else:
-                        links.append(
+                        raw_links.append(
                             urljoin("https://nepalfactcheck.org", href)
                         )
 
         # Strategy 2: heading tags h2/h3
-        if not links:
+        if not raw_links:
             for tag in ["h2", "h3"]:
                 for heading in soup.find_all(tag):
                     a = heading.find("a", href=True)
                     if a:
                         href = a["href"]
                         if href.startswith("http"):
-                            links.append(href)
+                            raw_links.append(href)
                         else:
-                            links.append(
+                            raw_links.append(
                                 urljoin("https://nepalfactcheck.org", href)
                             )
 
         # Strategy 3: all links matching article URL pattern
-        if not links:
+        if not raw_links:
             for a in soup.find_all("a", href=True):
                 href = a["href"]
-                if (
-                    re.search(r"nepalfactcheck\.org/\d{4}/\d{2}/\S+", href)
-                    and href not in links
-                ):
-                    links.append(href)
+                if re.search(r"nepalfactcheck\.org/\d{4}/\d{2}/\S+", href):
+                    raw_links.append(href)
 
         # Filter to article URLs only
-        links = [
-            l for l in links
+        raw_links = [
+            l for l in raw_links
             if re.search(r"/\d{4}/\d{2}/", l)
             and "nepalfactcheck.org" in l
             and not l.endswith("/category/")
@@ -185,18 +200,18 @@ class NepalfactcheckScraper(BaseScraper):
             and "?p=" not in l
         ]
 
-        # Deduplicate preserving order
+        # Deduplicate preserving order, attach date_iso from URL
         seen = set()
-        unique_links = []
-        for l in links:
-            if l not in seen:
-                seen.add(l)
-                unique_links.append(l)
+        link_tuples = []
+        for url in raw_links:
+            if url not in seen:
+                seen.add(url)
+                link_tuples.append((url, date_iso_from_url(url)))
 
         self.logger.debug(
-            f"Found {len(unique_links)} article links on {page_url}"
+            f"Found {len(link_tuples)} article links on {page_url}"
         )
-        return unique_links
+        return link_tuples
 
     def scrape_article(self, url: str) -> Optional[RawArticle]:
         """
@@ -204,7 +219,7 @@ class NepalfactcheckScraper(BaseScraper):
 
         Sets two date fields:
           date_published:     raw ISO string stored in JSON as-is
-          published_date_iso: first 10 chars for cutoff check ONLY
+          published_date_iso: first 10 chars for cutoff tracking, NOT stored
         """
         html = self.fetch_page(url)
         if not html:
@@ -256,7 +271,7 @@ class NepalfactcheckScraper(BaseScraper):
 
             # --- Date ---
             # date_published:     raw ISO string stored as-is
-            # published_date_iso: first 10 chars for cutoff check only
+            # published_date_iso: first 10 chars for cutoff tracking only
             date_published = ""
             published_date_iso = ""
 

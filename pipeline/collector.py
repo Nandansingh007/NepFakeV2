@@ -20,6 +20,7 @@ from pathlib import Path
 
 from config.settings import (
     ACTIVE_SOURCES,
+    RAW_DIR,
     RAW_DIRS,
     LAST_RUN_FILE,
     setup_logging,
@@ -116,7 +117,7 @@ def compute_raw_stats() -> dict:
 
 def save_raw_stats(stats: dict, run_id: str) -> None:
     """Save raw stats to raw/stats_raw.json."""
-    stats_file = Path("raw") / "stats_raw.json"
+    stats_file = RAW_DIR / "stats_raw.json"
     stats["last_updated"] = datetime.now(timezone.utc).isoformat()
     stats["run_id"] = run_id
 
@@ -226,13 +227,20 @@ def run_collector() -> None:
     logger.info("Starting Stage 2 — normalization and export")
     try:
         from pipeline.normalizer import normalize_all
-        from pipeline.deduplicator import deduplicate
+        from pipeline.deduplicator import deduplicate, get_dedup_stats
         from pipeline.exporter import export
 
         examples = normalize_all()
-        deduped = deduplicate(examples)
-        dataset_stats = export(deduped)
 
+        deduped = deduplicate(examples)
+        dedup_stats = get_dedup_stats(examples, deduped)
+        logger.info(
+            f"Dedup: {dedup_stats['removed']} removed, "
+            f"{dedup_stats['after']} kept "
+            f"({dedup_stats['removal_rate']} removal rate)"
+        )
+
+        dataset_stats = export(deduped)
         logger.info(
             f"Stage 2 complete — "
             f"{dataset_stats.get('total_examples', 0)} examples exported"
@@ -255,23 +263,15 @@ def run_collector() -> None:
 
 
 def _get_scraper(source_name: str):
-    """Dynamically import and return scraper instance."""
+    """Dynamically import and return scraper instance for active sources."""
     try:
         if source_name == "techpana":
             from scrapers.techpana import TechpanaScraper
             return TechpanaScraper()
 
-        elif source_name == "nepalcheck":
-            from scrapers.nepalcheck import NepalcheckScraper
-            return NepalcheckScraper()
-
         elif source_name == "nepalfactcheck":
             from scrapers.nepalfactcheck import NepalfactcheckScraper
             return NepalfactcheckScraper()
-
-        elif source_name == "bbc_nepali":
-            from scrapers.bbc_nepali import BBCNepaliScraper
-            return BBCNepaliScraper()
 
         else:
             return None

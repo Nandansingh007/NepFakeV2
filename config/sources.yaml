@@ -1,14 +1,14 @@
 # config/sources.yaml
 # =============================================================================
-# Single source of truth for all scraper configuration.
+# NepFakeV2 scraper configuration.
+# Single source of truth for all active scrapers.
 #
 # Rules:
-#   - Never hardcode URLs, limits, or labels in scraper files
+#   - Never hardcode URLs or limits in scraper files
 #   - To disable a source: set active: false
-#   - To add a source: add a block here + write one scraper class
+#   - To add a source: add a block here + write scraper class
 #   - max_pages: null means paginate until empty page or cutoff date
-#   - Labels verified directly from each source's methodology page
-#   - cutoff_strategy defines how incremental scraping works per source
+#   - rate_limit_seconds must respect robots.txt Crawl-delay
 # =============================================================================
 
 sources:
@@ -16,10 +16,10 @@ sources:
   # ---------------------------------------------------------------------------
   # SOURCE 1: TechPana Factcheck
   # Type:     IFCN-certified professional fact-checker
-  # Founded:  22 Feb 2025
-  # Active:   YES — publishing Aug 2026
+  # Active:   YES — publishing 2026
   # Language: Nepali (Devanagari)
-  # Labels:   Verified from techpana.com/factcheck/ methodology page
+  # robots.txt: Crawl-delay: 10, Disallow: (empty = all allowed)
+  # Note:     Protected by Cloudflare — scraped via FlareSolverr in CI
   # ---------------------------------------------------------------------------
   techpana:
     name: "techpana"
@@ -29,74 +29,22 @@ sources:
     start_page: 1
     max_pages: null
     active: true
-    rate_limit_seconds: 3
+    rate_limit_seconds: 10
     retry_attempts: 2
     retry_backoff_seconds: 2
     language: "ne"
     scraper_class: "TechpanaScraper"
     source_type: "fact_checker"
-
-    # Incremental cutoff strategy
-    # TechPana URLs contain sequential article IDs — no date in URL
-    # techpana.com/2026/158693/slug → ID 158693
-    # Higher ID = newer article
-    # Stop pagination when article ID <= last_scraped_article_id
-    cutoff_strategy: "article_id"
-
-    # Verified labels — stored as-is in raw, mapped in Stage 2
     labels:
-      raw:
-        - "सही"        # True        → label 0 (if published)
-        - "अपुष्ट"     # Unverified  → label 2
-        - "भ्रामक"     # Misleading  → label 1
-        - "मिथ्या"     # False       → label 1
+      raw: ["सही", "अपुष्ट", "भ्रामक", "मिथ्या"]
       labels_produced: [0, 1, 2]
-      note: >
-        Verdict appears as structured tag in article HTML.
-        Raw date stored as Bikram Sambat string e.g. "भदौ ९, २०८३".
-        BS to AD conversion happens in Stage 2 normalizer.
 
   # ---------------------------------------------------------------------------
-  # SOURCE 2: NepalCheck.org (Nepali version)
-  # Type:     Professional fact-checker
-  # Active:   PARKED — inactive since Feb 2026, only 9 articles
-  # ---------------------------------------------------------------------------
-  nepalcheck:
-    name: "nepalcheck"
-    display_name: "NepalCheck (Nepali)"
-    base_url: "https://np.nepalcheck.org/factcheck/"
-    list_url_template: "https://np.nepalcheck.org/factcheck/page/{page}/"
-    start_page: 1
-    max_pages: null
-    active: false              # PARKED — site inactive since Feb 2026
-    rate_limit_seconds: 2
-    retry_attempts: 3
-    retry_backoff_seconds: 5
-    language: "ne"
-    scraper_class: "NepalcheckScraper"
-    source_type: "fact_checker"
-    cutoff_strategy: "url_date"
-    # URL pattern: np.nepalcheck.org/YYYY/MM/DD/slug
-    # Full date available in URL — reliable cutoff
-
-    labels:
-      raw:
-        - "भ्रामक"    # Misleading → label 1
-        - "मिथ्या"    # False      → label 1
-        - "अपुष्ट"    # Unverified → label 2
-        - "सही"       # True       → label 0
-      labels_produced: [0, 1, 2]
-      note: >
-        Inactive since Feb 2026. Only 9 articles total.
-        Parked — not in auto-pipeline.
-        Raw date stored as-is from meta tag.
-
-  # ---------------------------------------------------------------------------
-  # SOURCE 3: NepalFactCheck.org
+  # SOURCE 2: NepalFactCheck.org
   # Type:     Non-profit fact-checker (CMR-Nepal + MySansar.com)
-  # Founded:  April 2020
-  # Active:   YES — publishing Aug 2026 (multiple per week)
+  # Active:   YES — publishing 2026
   # Language: Nepali ONLY
+  # robots.txt: No Crawl-delay, /news/ pages fully allowed
   # ---------------------------------------------------------------------------
   nepalfactcheck:
     name: "nepalfactcheck"
@@ -112,111 +60,6 @@ sources:
     language: "ne"
     scraper_class: "NepalfactcheckScraper"
     source_type: "fact_checker"
-
-    # Incremental cutoff strategy
-    # URL pattern: nepalfactcheck.org/YYYY/MM/slug
-    # Year + month available in URL — use as approximate cutoff
-    cutoff_strategy: "url_date"
-
     labels:
-      raw:
-        - "सही सूचना"      # True        → label 0
-        - "अपुष्ट सूचना"   # Unverified  → label 2
-        - "भ्रामक सूचना"   # Misleading  → label 1
-        - "मिथ्या सूचना"   # False       → label 1
+      raw: ["सही सूचना", "अपुष्ट सूचना", "भ्रामक सूचना", "मिथ्या सूचना"]
       labels_produced: [0, 1, 2]
-      note: >
-        Explicitly publishes सही सूचना when factual claim
-        has caused public confusion — confirmed in FAQ.
-        Raw date stored as-is from meta tag ISO string.
-        e.g. "2026-08-27T05:49:08+00:00" — truncation in Stage 2.
-
-  # ---------------------------------------------------------------------------
-  # SOURCE 4: BBC Nepali
-  # Type:     Newspaper — Label 0 source
-  # Active:   PARKED — code available, not in auto-pipeline
-  # Reason:   Would cause Label 0 explosion (10-20 articles/day)
-  # ---------------------------------------------------------------------------
-  bbc_nepali:
-    name: "bbc_nepali"
-    display_name: "BBC Nepali"
-    base_url: "https://www.bbc.com/nepali"
-    list_url_template: "https://www.bbc.com/nepali/articles?page={page}"
-    start_page: 1
-    max_pages: null
-    active: false              # PARKED — not in auto-pipeline
-    rate_limit_seconds: 3
-    retry_attempts: 3
-    retry_backoff_seconds: 5
-    language: "ne"
-    scraper_class: "BBCNepaliScraper"
-    source_type: "newspaper"
-    cutoff_strategy: "url_date"
-
-    labels:
-      raw: []
-      labels_produced: [0]
-      label_basis: "source_credibility"
-      note: >
-        Label 0 by source credibility — not individual verification.
-        Parked to prevent Label 0 class imbalance.
-        Scraper code available for manual use.
-        Document as limitation in paper.
-
-  # ---------------------------------------------------------------------------
-  # SOURCE 5: Kantipur
-  # Type:     Newspaper — Label 0 source
-  # Active:   PARKED — code available, not in auto-pipeline
-  # Reason:   Would cause Label 0 explosion (50-100 articles/day)
-  # ---------------------------------------------------------------------------
-  kantipur:
-    name: "kantipur"
-    display_name: "Kantipur"
-    base_url: "https://ekantipur.com"
-    list_url_template: "https://ekantipur.com/news?page={page}"
-    start_page: 1
-    max_pages: null
-    active: false              # PARKED — not in auto-pipeline
-    rate_limit_seconds: 2
-    retry_attempts: 3
-    retry_backoff_seconds: 5
-    language: "ne"
-    scraper_class: "KantipurScraper"
-    source_type: "newspaper"
-    cutoff_strategy: "url_date"
-
-    labels:
-      raw: []
-      labels_produced: [0]
-      label_basis: "source_credibility"
-      note: >
-        Label 0 by source credibility — not individual verification.
-        Parked to prevent Label 0 class imbalance.
-        Scraper code available for manual use.
-        Document as limitation in paper.
-
-  # ---------------------------------------------------------------------------
-  # SOURCE 6: MisinfoNepal — PERMANENTLY CLOSED
-  # Reason:   Owner confirmed scraping not permitted (30 Aug 2026)
-  # ---------------------------------------------------------------------------
-  misinfonepal:
-    name: "misinfonepal"
-    display_name: "Misinformation Nepal"
-    base_url: "https://misinfonepal.com/"
-    list_url_template: null
-    start_page: null
-    max_pages: null
-    active: false              # PERMANENTLY CLOSED
-    rate_limit_seconds: null
-    retry_attempts: null
-    retry_backoff_seconds: null
-    language: "ne"
-    scraper_class: null
-    source_type: null
-    cutoff_strategy: null
-    labels:
-      raw: []
-      labels_produced: []
-      note: >
-        Owner confirmed scraping not permitted on 30 Aug 2026.
-        Permanently closed. See pending/misinfonepal_notes.md.

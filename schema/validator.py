@@ -24,9 +24,9 @@ class ValidationResult:
     Result of validating a single NepFakeV2Example.
     
     Attributes:
-        is_valid:  True if record passes all checks
-        errors:    List of hard failures — record must be fixed or dropped
-        warnings:  List of soft issues — record is kept but flagged
+        is_valid:   True if record passes all checks
+        errors:     List of hard failures — record must be fixed or dropped
+        warnings:   List of soft issues — record is kept but flagged
         example_id: ID of the record being validated
     """
     is_valid: bool
@@ -79,12 +79,19 @@ def validate_example(example: NepFakeV2Example) -> ValidationResult:
         errors.append("claim_text is empty")
     elif len(example.claim_text.strip()) < 10:
         errors.append(f"claim_text too short ({len(example.claim_text)} chars): {example.claim_text}")
-    
+
     if example.claim_text and not is_devanagari(example.claim_text):
         warnings.append("claim_text contains no Devanagari script")
 
     # --- verdict_label ---
-    if example.verdict_label not in LABELS:
+    # -1 (UNKNOWN) is a valid pipeline label but must not reach the dataset
+    # exporter filters -1 records, validator enforces this as a hard error
+    if example.verdict_label == -1:
+        errors.append(
+            "verdict_label is -1 (UNKNOWN) — unmappable verdict, "
+            "record must not enter dataset"
+        )
+    elif example.verdict_label not in LABELS:
         errors.append(f"verdict_label invalid: {example.verdict_label} — must be one of {list(LABELS.keys())}")
 
     # --- verdict_label_text ---
@@ -110,10 +117,7 @@ def validate_example(example: NepFakeV2Example) -> ValidationResult:
         warnings.append(f"evidence_text very short ({len(example.evidence_text)} chars)")
 
     # --- source_name ---
-    valid_sources = {
-        "techpana", "nepalcheck", "nepalfactcheck",
-        "bbc_nepali", "kantipur"
-    }
+    valid_sources = {"techpana", "nepalfactcheck"}
     if not example.source_name:
         errors.append("source_name is empty")
     elif example.source_name not in valid_sources:
@@ -136,7 +140,6 @@ def validate_example(example: NepFakeV2Example) -> ValidationResult:
     if not example.date_published:
         warnings.append("date_published is empty")
     else:
-        # Must be ISO format YYYY-MM-DD
         import re
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", example.date_published):
             errors.append(f"date_published not ISO format: {example.date_published}")
@@ -147,14 +150,12 @@ def validate_example(example: NepFakeV2Example) -> ValidationResult:
         errors.append(f"label_basis invalid: {example.label_basis}")
 
     # --- label_basis consistency ---
-    # Newspaper sources must use source_credibility
     if example.source_type == "newspaper" and example.label_basis != "source_credibility":
         errors.append(
             f"newspaper source must have label_basis='source_credibility', "
             f"got '{example.label_basis}'"
         )
 
-    # Fact-checker sources must use fact_checker_verdict
     if example.source_type == "fact_checker" and example.label_basis != "fact_checker_verdict":
         errors.append(
             f"fact_checker source must have label_basis='fact_checker_verdict', "
@@ -212,9 +213,9 @@ def validate_batch(examples: List[NepFakeV2Example]) -> dict:
             invalid.append((example, result))
 
     stats = {
-        "total":   len(examples),
-        "valid":   len(valid),
-        "invalid": len(invalid),
+        "total":     len(examples),
+        "valid":     len(valid),
+        "invalid":   len(invalid),
         "pass_rate": f"{len(valid) / len(examples) * 100:.1f}%" if examples else "0%",
     }
 

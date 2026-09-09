@@ -76,6 +76,39 @@ def parse_bs_date(date_str: str) -> Optional[str]:
         return None
 
 
+def parse_bs_date_from_text(text: str) -> Optional[str]:
+    """
+    Extract and convert the first BS date found in a text block.
+    Used to get date_iso from listing page card text.
+    Returns ISO "YYYY-MM-DD" or None.
+    """
+    for month in BS_MONTHS.keys():
+        pattern = rf"{month}\s+[०-९\d]+,?\s+[०-९\d]{{4}}"
+        match = re.search(pattern, text)
+        if match:
+            return parse_bs_date(match.group(0))
+    return None
+
+
+def date_iso_from_url(url: str) -> Optional[str]:
+    """
+    Extract approximate date from TechPana URL pattern /YYYY/NNNNNN/.
+    The 6-digit segment encodes YYYYMM — use as YYYY-MM-01 fallback.
+    Returns "YYYY-MM-01" or None.
+    """
+    match = re.search(r"/(\d{4})/(\d{6})/", url)
+    if match:
+        year = match.group(1)
+        month_segment = match.group(2)[:2]   # first 2 digits = month
+        try:
+            month = int(month_segment)
+            if 1 <= month <= 12:
+                return f"{year}-{month:02d}-01"
+        except ValueError:
+            pass
+    return None
+
+
 # =============================================================================
 # VERDICT EXTRACTION
 # =============================================================================
@@ -192,56 +225,64 @@ class TechpanaScraper(BaseScraper):
         super().__init__("techpana")
         self.base_url = self.config["base_url"]
 
-    def get_article_links(self, page_url: str) -> list[str]:
+    def get_article_links(self, page_url: str) -> list[tuple[str, str]]:
+        """
+        Extract article URLs and listing-page dates from TechPana listing page.
+
+        Returns:
+            List of (url, date_iso) tuples.
+            date_iso extracted from card text (BS date → ISO).
+            Falls back to URL-derived approximate date if card date missing.
+            Returns "" if neither available — article will be fetched anyway.
+        """
         html = self.fetch_page(page_url)
         if not html:
             return []
 
         soup = BeautifulSoup(html, "lxml")
-        links = []
-
-        # FIXED: TechPana now uses div.single_row-title with browser headers
-        # Strategy 1: single_row-title divs (new structure)
-        for div in soup.find_all("div", class_="single_row-title"):
-            a = div.find("a", href=True)
-            if a:
-                href = a["href"]
-                if href.startswith("http"):
-                    links.append(href)
-                else:
-                    links.append(urljoin("https://techpana.com", href))
-
-        # Strategy 2: h3 tags (old structure fallback)
-        if not links:
-            for h3 in soup.find_all("h3"):
-                a = h3.find("a", href=True)
-                if a:
-                    href = a["href"]
-                    if href.startswith("http"):
-                        links.append(href)
-                    else:
-                        links.append(urljoin("https://techpana.com", href))
-
-        # Filter to fact-check article URLs only
-        links = [
-            l for l in links
-            if re.search(r"/\d{4}/\d+/", l)
-            and "factcheck_eng" not in l
-            and "/english/" not in l
-        ]
-
-        # Deduplicate preserving order
+        link_tuples = []
         seen = set()
-        unique_links = []
-        for l in links:
-            if l not in seen:
-                seen.add(l)
-                unique_links.append(l)
+
+        def process_card(container):
+            """Extract (url, date_iso) from an article card container."""
+            a = container.find("a", href=True)
+            if not a:
+                return
+
+            href = a["href"]
+            url = href if href.startswith("http") else urljoin("https://techpana.com", href)
+
+            # Filter to Nepali fact-check URLs only
+            if not re.search(r"/\d{4}/\d+/", url):
+                return
+            if "factcheck_eng" in url or "/english/" in url:
+                return
+            if url in seen:
+                return
+
+            # Extract date from card text — avoids fetching article
+            card_text = container.get_text(" ", strip=True)
+            date_iso = parse_bs_date_from_text(card_text) or date_iso_from_url(url) or ""
+
+            seen.add(url)
+            link_tuples.append((url, date_iso))
+
+        # Strategy 1: single_row-title divs (current structure)
+        for div in soup.find_all("div", class_="single_row-title"):
+            # Walk up to find the card container that includes the date
+            card = div.find_parent("div", class_=re.compile(r"single_row|card|item", re.I)) or div
+            process_card(card)
+
+        # Strategy 2: h3 tags (fallback for old structure)
+        if not link_tuples:
+            for h3 in soup.find_all("h3"):
+                card = h3.find_parent("div", class_=re.compile(r"row|card|item|post", re.I)) or h3
+                process_card(card)
 
         self.logger.debug(
-            f"Found {len(unique_links)} Nepali article links on {page_url}"
+            f"Found {len(link_tuples)} Nepali article links on {page_url}"
         )
-        return unique_links
+        return link_tuples
 
     def scrape_article(self, url: str) -> Optional[RawArticle]:
         """
@@ -249,7 +290,7 @@ class TechpanaScraper(BaseScraper):
 
         Sets two date fields:
           date_published:     raw BS string stored in JSON as-is
-          published_date_iso: ISO date for cutoff check only, NOT stored
+          published_date_iso: ISO date for cutoff tracking, NOT stored
         """
         html = self.fetch_page(url)
         if not html:

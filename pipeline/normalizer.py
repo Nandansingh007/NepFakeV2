@@ -6,7 +6,7 @@
 # Output: NepFakeV2Example dataclass instances
 #
 # Jobs:
-#   - Map raw verdict → label 0/1/2
+#   - Map raw verdict → label 0/1/2/-1
 #   - Convert raw date → ISO format
 #   - Assign example_id
 #   - Detect Devanagari script
@@ -20,13 +20,13 @@
 import re
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from config.settings import is_devanagari, RAW_DIRS, SCHEMA_VERSION
 from schema.schema import NepFakeV2Example, make_example_id
-from pipeline.label_mapper import map_verdict, is_mappable
+from schema.validator import validate_batch
+from pipeline.label_mapper import map_verdict
 from scrapers.techpana import BS_MONTHS, parse_bs_date
 
 logger = logging.getLogger("nepfakev2.normalizer")
@@ -152,16 +152,6 @@ def detect_topic(title: str, body_text: str) -> str:
 # NORMALIZER
 # =============================================================================
 
-# Counter for generating sequential example IDs
-_id_counter = 0
-
-
-def reset_id_counter():
-    """Reset ID counter — call before normalizing a full batch."""
-    global _id_counter
-    _id_counter = 0
-
-
 def normalize_article(
     raw: dict,
     sequence: int,
@@ -169,13 +159,16 @@ def normalize_article(
     """
     Normalize a single raw article dict into a NepFakeV2Example.
 
+    Unmappable verdicts are kept as label -1 (UNKNOWN) — not coerced.
+    The exporter decides whether to include or exclude -1 records.
+
     Args:
         raw:      Raw article dict from JSON file
         sequence: Sequential number for example_id generation
 
     Returns:
         NepFakeV2Example if normalization succeeds
-        None if article should be skipped (unmappable verdict etc.)
+        None if article should be skipped (no title or body)
     """
     source_name = raw.get("source_name", "")
     source_url = raw.get("source_url", "")
@@ -191,9 +184,9 @@ def normalize_article(
         return None
 
     # --- Map verdict to label ---
+    # -1 (UNKNOWN) is preserved as-is — not coerced to any other label
     verdict_label, verdict_label_text = map_verdict(raw_verdict)
 
-    # Skip unmappable verdicts — flag for manual review
     if verdict_label == -1:
         logger.warning(f"Unmappable verdict '{raw_verdict}': {source_url}")
         if annotator_notes:
@@ -205,9 +198,7 @@ def normalize_article(
     date_published = normalize_date(raw_date)
 
     # --- Generate example ID ---
-    date_for_id = date_published or "19700101"
-    date_compact = date_for_id.replace("-", "")
-    example_id = f"NF2_{date_compact}_{sequence:04d}"
+    example_id = make_example_id(date_published, sequence)
 
     # --- Detect Devanagari ---
     is_native_nepali = is_devanagari(title) or is_devanagari(body_text[:100])
@@ -215,28 +206,22 @@ def normalize_article(
     # --- Detect topic ---
     topic_category = detect_topic(title, body_text)
 
-    # --- Set source type ---
-    source_type = "fact_checker"  # all active sources are fact-checkers
-
-    # --- Set label basis ---
-    label_basis = "fact_checker_verdict"
-
     # --- Build example ---
     example = NepFakeV2Example(
         example_id=example_id,
         claim_text=title,
-        verdict_label=verdict_label if verdict_label != -1 else 1,
-        verdict_label_text=verdict_label_text if verdict_label != -1 else "FALSE_MISLEADING",
+        verdict_label=verdict_label,
+        verdict_label_text=verdict_label_text,
         evidence_text=body_text,
         evidence_sentences=[],
         external_evidence_urls=raw.get("external_links", [])[:5],
         source_name=source_name,
-        source_type=source_type,
+        source_type="fact_checker",
         source_url=source_url,
         source_outlet="",
         date_published=date_published,
         is_native_nepali=is_native_nepali,
-        label_basis=label_basis,
+        label_basis="fact_checker_verdict",
         topic_category=topic_category,
         annotator_notes=annotator_notes,
         split="",
@@ -252,9 +237,8 @@ def normalize_all() -> list[NepFakeV2Example]:
     Reads all JSON files from raw/ directories.
 
     Returns:
-        List of NepFakeV2Example records
+        List of NepFakeV2Example records (including -1 UNKNOWN labels)
     """
-    reset_id_counter()
     all_examples = []
     sequence = 1
 
@@ -280,7 +264,6 @@ def normalize_all() -> list[NepFakeV2Example]:
             f"{source_name}: loaded {len(source_articles)} raw articles"
         )
 
-        # Normalize each article
         for raw in source_articles:
             example = normalize_article(raw, sequence)
             if example:
@@ -292,4 +275,21 @@ def normalize_all() -> list[NepFakeV2Example]:
         )
 
     logger.info(f"Total normalized: {len(all_examples)} examples")
-    return all_examples
+
+    # Validate all examples — drop hard failures before pipeline continues
+    validation = validate_batch(all_examples)
+    if validation["invalid"]:
+        logger.warning(
+            f"Validation: {validation['stats']['invalid']} invalid records dropped, "
+            f"{validation['stats']['valid']} passed "
+            f"({validation['stats']['pass_rate']} pass rate)"
+        )
+        for example, result in validation["invalid"]:
+            logger.warning(f"  Invalid: {result}")
+    else:
+        logger.info(
+            f"Validation passed: {validation['stats']['valid']} records "
+            f"({validation['stats']['pass_rate']} pass rate)"
+        )
+
+    return validation["valid"]

@@ -7,6 +7,11 @@
 #   data/nepfakev2.json  ← research dataset (JSON format)
 #   data/stats.json      ← dataset statistics
 #
+# Note:
+#   UNKNOWN (-1) records are excluded from CSV and JSON exports.
+#   They are counted in stats.json under label_distribution.
+#   Each excluded record has annotator_notes = "verdict_unmappable".
+#
 # Usage:
 #   from pipeline.exporter import export
 # =============================================================================
@@ -14,7 +19,6 @@
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 
@@ -28,8 +32,12 @@ def export(examples: list[NepFakeV2Example]) -> dict:
     """
     Export normalized examples to CSV, JSON and stats files.
 
+    UNKNOWN (-1) records are excluded from CSV and JSON — they have
+    unmappable verdicts and must not enter the research dataset.
+    Stats are computed over the full list so unknowns are visible.
+
     Args:
-        examples: List of NepFakeV2Example to export
+        examples: List of NepFakeV2Example (may include -1 records)
 
     Returns:
         Dict with export stats
@@ -40,8 +48,17 @@ def export(examples: list[NepFakeV2Example]) -> dict:
         logger.warning("No examples to export")
         return {}
 
-    # Convert to list of dicts
-    records = [to_dict(e) for e in examples]
+    # Exclude UNKNOWN (-1) records from exported dataset
+    exportable = [e for e in examples if e.verdict_label != -1]
+    unknown_count = len(examples) - len(exportable)
+    if unknown_count > 0:
+        logger.warning(
+            f"{unknown_count} UNKNOWN (-1) records excluded from export "
+            f"— check raw verdict strings for manual review"
+        )
+
+    # Convert exportable records to dicts
+    records = [to_dict(e) for e in exportable]
 
     # --- Export CSV ---
     csv_path = DATA_DIR / "nepfakev2.csv"
@@ -56,6 +73,7 @@ def export(examples: list[NepFakeV2Example]) -> dict:
     logger.info(f"Exported JSON: {json_path} ({len(records)} records)")
 
     # --- Compute and export stats ---
+    # Pass full examples list so unknowns appear in label_distribution
     stats = compute_stats(examples)
     stats_path = DATA_DIR / "stats.json"
     with open(stats_path, "w", encoding="utf-8") as f:
@@ -67,10 +85,12 @@ def export(examples: list[NepFakeV2Example]) -> dict:
 
 def compute_stats(examples: list[NepFakeV2Example]) -> dict:
     """
-    Compute dataset statistics.
+    Compute dataset statistics over the full example list.
+    Includes UNKNOWN (-1) records so the stats file is honest
+    about how many records were excluded from the export.
 
     Args:
-        examples: List of NepFakeV2Example
+        examples: Full list of NepFakeV2Example (including -1 records)
 
     Returns:
         Dict with dataset statistics
@@ -106,7 +126,8 @@ def compute_stats(examples: list[NepFakeV2Example]) -> dict:
 
     stats = {
         "last_updated": datetime.now(timezone.utc).isoformat(),
-        "total_examples": total,
+        "total_examples": total - label_dist.get(-1, 0),  # exported count
+        "total_including_unknown": total,                  # full count
         "label_distribution": {
             LABELS.get(label, str(label)): {
                 "count": count,

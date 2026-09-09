@@ -26,10 +26,7 @@ SCHEMA_DIR = BASE_DIR / "schema"
 # Raw subdirectories — one per source
 RAW_DIRS = {
     "techpana":       RAW_DIR / "techpana",
-    "nepalcheck":     RAW_DIR / "nepalcheck",
     "nepalfactcheck": RAW_DIR / "nepalfactcheck",
-    "bbc_nepali":     RAW_DIR / "bbc_nepali",
-    "kantipur":       RAW_DIR / "kantipur",
 }
 
 # State file — tracks last run date per source
@@ -82,10 +79,12 @@ ACTIVE_SOURCES = {
 SCHEMA_VERSION = "1.0"
 
 # NepFakeV2 label definitions
+# -1 = UNKNOWN: verdict present in source but no mapping defined
 LABELS = {
-    0: "REAL",
-    1: "FALSE_MISLEADING",
-    2: "UNVERIFIED",
+    0:  "REAL",
+    1:  "FALSE_MISLEADING",
+    2:  "UNVERIFIED",
+    -1: "UNKNOWN",
 }
 
 LABEL_TO_INT = {v: k for k, v in LABELS.items()}
@@ -98,7 +97,7 @@ LABEL_TO_INT = {v: k for k, v in LABELS.items()}
 USER_AGENT = (
     "NepFakeV2-Research-Bot/1.0 "
     "(Academic research; github.com/Nandansingh007/NepFakeV2; "
-    "contact: nandansingh007@gmail.com)"
+    "contact: nandan.singhs007@gmail.com)"
 )
 
 # Default request timeout in seconds

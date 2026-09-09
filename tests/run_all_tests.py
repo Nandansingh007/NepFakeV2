@@ -7,10 +7,12 @@ import sys
 import os
 
 tests = [
+    "tests/test_schema.py",
     "tests/test_label_mapper.py",
     "tests/test_scrapers.py",
     "tests/test_raw_data.py",
     "tests/test_normalizer.py",
+    "tests/test_validator.py",
     "tests/test_deduplicator.py",
     "tests/test_pipeline.py",
     "tests/test_dataset.py",

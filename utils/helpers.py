@@ -3,6 +3,8 @@
 # Shared utility functions for NepFakeV2 pipeline.
 # Used by collector.py for incremental tracking only.
 # Deduplication utilities used in Stage 2 cleaning.
+#
+# Note: is_devanagari() is defined in config.settings — import from there.
 # =============================================================================
 
 import hashlib
@@ -65,17 +67,3 @@ def title_hash(title: str) -> str:
     """
     clean = " ".join(title.strip().lower().split())
     return hashlib.md5(clean.encode("utf-8")).hexdigest()[:12]
-
-
-def is_devanagari(text: str) -> bool:
-    """
-    Check if text contains Devanagari Unicode characters.
-    Devanagari range: U+0900 to U+097F
-
-    Args:
-        text: Input string
-
-    Returns:
-        True if Devanagari characters found
-    """
-    return any("\u0900" <= char <= "\u097F" for char in text)

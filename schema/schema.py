@@ -114,6 +114,24 @@ class NepFakeV2Example:
 # HELPERS
 # =============================================================================
 
+def make_example_id(date_str: str, sequence: int) -> str:
+    """
+    Generate stable example ID.
+    ID format: NF2_YYYYMMDD_NNNN
+    e.g. "NF2_20260831_0001"
+
+    Args:
+        date_str: ISO date string "YYYY-MM-DD" or "YYYYMMDD"
+                  Falls back to "19700101" if empty.
+        sequence: Sequential integer — unique within a batch.
+
+    Returns:
+        Example ID string.
+    """
+    date_compact = (date_str or "19700101").replace("-", "")
+    return f"NF2_{date_compact}_{sequence:04d}"
+
+
 def to_dict(example: NepFakeV2Example) -> dict:
     """Convert NepFakeV2Example to flat dict for CSV/JSON export."""
     return {
@@ -165,9 +183,3 @@ def from_dict(d: dict) -> NepFakeV2Example:
 def validate_label(label: int) -> bool:
     """Returns True if label is a valid NepFakeV2 label."""
     return label in LABELS
-
-
-def make_example_id(date_str: str, sequence: int) -> str:
-    """Generate stable example ID e.g. 'NF2_20260831_0001'"""
-    date_compact = date_str.replace("-", "")
-    return f"NF2_{date_compact}_{sequence:04d}"
