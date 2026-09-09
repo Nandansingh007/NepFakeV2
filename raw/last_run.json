@@ -1,0 +1,18 @@
+{
+  "last_run_date": "2026-09-09",
+  "run_id": "run_20260909_125708",
+  "sources": {
+    "techpana": {
+      "status": "success",
+      "articles_scraped": 271,
+      "last_run_date": "2026-09-09",
+      "last_published_date": "2026-09-09"
+    },
+    "nepalfactcheck": {
+      "status": "success",
+      "articles_scraped": 662,
+      "last_run_date": "2026-09-09",
+      "last_published_date": "2026-09-09"
+    }
+  }
+}
