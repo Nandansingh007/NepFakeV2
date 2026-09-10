@@ -17,6 +17,8 @@
 # Fixes (05 Sep 2026):
 #   - Added झुटो, साँचो, गलत to VERDICT_KEYWORDS
 #   - Fixed img src search to check ALL img tags not just first
+# Fix (10 Sep 2026):
+#   - Strip leading "Shares\n" widget artifact from body_text
 # =============================================================================
 
 import re
@@ -157,6 +159,7 @@ FACTCHECK_INDICATORS = [
     "misleading",
 ]
 
+
 def strip_sidebar(text: str) -> str:
     """Remove sidebar/related content to prevent false positives."""
     for marker in SIDEBAR_MARKERS:
@@ -164,6 +167,21 @@ def strip_sidebar(text: str) -> str:
         if idx != -1:
             text = text[:idx]
     return text
+
+
+def strip_shares_prefix(text: str) -> str:
+    """
+    Remove leading "Shares" widget artifact from TechPana body text.
+    TechPana injects a social share count widget at the top of article
+    content — it renders as "Shares\n" before the actual article text.
+    Affects ~72% of TechPana articles.
+    """
+    if text.startswith("Shares"):
+        newline_idx = text.find("\n")
+        if newline_idx != -1:
+            return text[newline_idx + 1:].strip()
+    return text
+
 
 def is_factcheck_article(title: str, body_text: str) -> bool:
     """
@@ -321,6 +339,10 @@ class TechpanaScraper(BaseScraper):
                 for tag in content_div.find_all(["script", "style", "nav"]):
                     tag.decompose()
                 body_text = content_div.get_text(separator="\n", strip=True)
+
+            # Strip leading "Shares" widget artifact — affects ~72% of articles
+            body_text = strip_shares_prefix(body_text)
+
             if not body_text:
                 self.logger.warning(f"No body text: {url}")
                 return None
