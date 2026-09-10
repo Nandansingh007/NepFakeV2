@@ -1,14 +1,14 @@
 {
-  "last_updated": "2026-09-09T14:40:08.354816+00:00",
-  "total_examples": 926,
-  "total_including_unknown": 926,
+  "last_updated": "2026-09-10T04:37:06.311307+00:00",
+  "total_examples": 927,
+  "total_including_unknown": 927,
   "label_distribution": {
     "REAL": {
       "count": 61,
       "pct": "6.6%"
     },
     "FALSE_MISLEADING": {
-      "count": 840,
+      "count": 841,
       "pct": "90.7%"
     },
     "UNVERIFIED": {
@@ -19,17 +19,17 @@
   "source_distribution": {
     "nepalfactcheck": {
       "count": 662,
-      "pct": "71.5%"
+      "pct": "71.4%"
     },
     "techpana": {
-      "count": 264,
-      "pct": "28.5%"
+      "count": 265,
+      "pct": "28.6%"
     }
   },
   "topic_distribution": {
     "politics": {
-      "count": 442,
-      "pct": "47.7%"
+      "count": 443,
+      "pct": "47.8%"
     },
     "other": {
       "count": 243,
@@ -58,12 +58,12 @@
   },
   "date_range": {
     "oldest": "2020-03-13",
-    "newest": "2026-09-09",
-    "total_with_date": 926,
+    "newest": "2026-09-10",
+    "total_with_date": 927,
     "total_without_date": 0
   },
   "language": {
-    "nepali_script": 922,
+    "nepali_script": 923,
     "nepali_pct": "99.6%"
   },
   "quality": {
