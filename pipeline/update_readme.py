@@ -52,10 +52,42 @@ def load_json(path: Path) -> dict:
         return json.load(f)
 
 
+def format_last_run(raw_stats: dict) -> str:
+    """
+    Build last incremental run summary.
+    Shows how many new articles each source added in the last run.
+    """
+    last_run_path = RAW_DIR / "last_run.json"
+    if not last_run_path.exists():
+        return ""
+
+    try:
+        with open(last_run_path, "r", encoding="utf-8") as f:
+            last_run = json.load(f)
+    except Exception:
+        return ""
+
+    run_date = last_run.get("last_run_date", "unknown")
+    sources  = last_run.get("sources", {})
+
+    parts = []
+    for source_key, display_name in SOURCE_DISPLAY.items():
+        data  = sources.get(source_key, {})
+        count = data.get("articles_scraped", 0)
+        status = data.get("status", "unknown")
+        flag = "✓" if status == "success" else "✗"
+        parts.append(f"{flag} {display_name}: +{count} new")
+
+    if not parts:
+        return ""
+
+    return f"**Last run:** {run_date} &nbsp;|&nbsp; " + " &nbsp;|&nbsp; ".join(parts)
+
+
 def format_source_verdict_breakdown(raw_by_source: dict) -> str:
     """
     Build per-source verdict breakdown line.
-    e.g. TechPana  264 examples | भ्रामक: 72%  मिथ्या: 22%  अपुष्ट: 3%  सही: 1%  unmapped: 3%
+    Shows raw article count and verdict profile per source.
     """
     lines = []
     for source_key, display_name in SOURCE_DISPLAY.items():
@@ -103,16 +135,20 @@ def build_stats_block(stats: dict, raw_stats: dict) -> str:
     except Exception:
         updated_str = last_updated[:10] if last_updated else "unknown"
 
-    total_examples        = stats.get("total_examples", 0)
+    total_raw               = raw_stats.get("total_raw_articles", 0)
+    total_examples          = stats.get("total_examples", 0)
     total_including_unknown = stats.get("total_including_unknown", total_examples)
-    unknown_count         = total_including_unknown - total_examples
-    label_dist            = stats.get("label_distribution", {})
-    date_range            = stats.get("date_range", {})
-    language              = stats.get("language", {})
-    raw_by_source         = raw_stats.get("by_source", {})
+    unknown_count           = total_including_unknown - total_examples
+    label_dist              = stats.get("label_distribution", {})
+    date_range              = stats.get("date_range", {})
+    language                = stats.get("language", {})
+    raw_by_source           = raw_stats.get("by_source", {})
 
     oldest = date_range.get("oldest", "N/A")
     newest = date_range.get("newest", "N/A")
+
+    # Last run incremental summary
+    last_run_line = format_last_run(raw_stats)
 
     # Label distribution rows — always show UNKNOWN even if 0
     label_rows = ""
@@ -141,16 +177,24 @@ def build_stats_block(stats: dict, raw_stats: dict) -> str:
 <!-- STATS_START -->
 ## Dataset Statistics
 
-**{total_examples} examples** &nbsp;|&nbsp; {oldest} → {newest} &nbsp;|&nbsp; Updated: {updated_str}
-{unmapped_note}
-### Label Distribution
+| | |
+|---|---|
+| 🗃 Raw articles scraped | **{total_raw}** |
+| ✅ Normalized examples | **{total_examples}** |
+| 📅 Date range | {oldest} → {newest} |
+| 🕒 Last updated | {updated_str} |
+
+{last_run_line}
+{unmapped_note.strip()}
+
+### Label Distribution (normalized)
 
 | Label | Count | % |
 |-------|------:|--:|
 {label_rows}
-### Source Breakdown
+### Source Breakdown (raw)
 
-| Source | Examples | Verdict profile |
+| Source | Articles | Verdict profile |
 |--------|----------:|-----------------|
 {source_breakdown}
 
