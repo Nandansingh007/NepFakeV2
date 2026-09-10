@@ -62,6 +62,27 @@ Each example contains:
 ---
 
 <!-- STATS_START -->
+## Dataset Statistics
+
+**928 examples** &nbsp;|&nbsp; 2020-03-13 → 2026-09-10 &nbsp;|&nbsp; Updated: 2026-09-10 11:06 UTC
+
+### Label Distribution
+
+| Label | Count | % |
+|-------|------:|--:|
+| REAL                 |    61 |   6.6% |
+| FALSE_MISLEADING     |   842 |  90.7% |
+| UNVERIFIED           |    25 |   2.7% |
+| UNKNOWN              |     0 |   0.0% |
+
+### Source Breakdown
+
+| Source | Examples | Verdict profile |
+|--------|----------:|-----------------|
+| TechPana         |  271 | भ्रामक: 73%  मिथ्या: 22%  अपुष्ट: 3%  unmapped: 2%  सही: 1%  ⚠ 5 unmapped |
+| NepalFactCheck   |  662 | भ्रामक: 53%  मिथ्या: 35%  सही: 9%  अपुष्ट: 3% |
+
+Nepali script coverage: **99.8%**
 <!-- STATS_END -->
 
 ## Limitations
