@@ -64,9 +64,17 @@ Each example contains:
 <!-- STATS_START -->
 ## Dataset Statistics
 
-**928 examples** &nbsp;|&nbsp; 2020-03-13 → 2026-09-10 &nbsp;|&nbsp; Updated: 2026-09-10 11:06 UTC
+| | |
+|---|---|
+| 🗃 Raw articles scraped | **933** |
+| ✅ Normalized examples | **928** |
+| 📅 Date range | 2020-03-13 → 2026-09-10 |
+| 🕒 Last updated | 2026-09-11 04:34 UTC |
 
-### Label Distribution
+**Last run:** 2026-09-11 &nbsp;|&nbsp; ✓ TechPana: +0 new &nbsp;|&nbsp; ✓ NepalFactCheck: +0 new
+
+
+### Label Distribution (normalized)
 
 | Label | Count | % |
 |-------|------:|--:|
@@ -75,9 +83,9 @@ Each example contains:
 | UNVERIFIED           |    25 |   2.7% |
 | UNKNOWN              |     0 |   0.0% |
 
-### Source Breakdown
+### Source Breakdown (raw)
 
-| Source | Examples | Verdict profile |
+| Source | Articles | Verdict profile |
 |--------|----------:|-----------------|
 | TechPana         |  271 | भ्रामक: 73%  मिथ्या: 22%  अपुष्ट: 3%  unmapped: 2%  सही: 1%  ⚠ 5 unmapped |
 | NepalFactCheck   |  662 | भ्रामक: 53%  मिथ्या: 35%  सही: 9%  अपुष्ट: 3% |
