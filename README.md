@@ -115,7 +115,6 @@ flowchart LR
 - **Label imbalance** — fact-checkers publish mostly debunks by design. 90%+ of examples are FALSE_MISLEADING. This reflects real-world distribution, not a collection error.
 - **claim_text is the article headline** — not an atomically extracted claim. Future versions will improve atomic claim extraction.
 - **Cross-source duplicates** — the same claim may be fact-checked independently by both sources. Both records are retained as independent verifications. Cross-source deduplication requires Nepali NER and is documented as future work.
-- **TechPana uses Cloudflare** — TechPana blocks datacenter IPs. Scraped via FlareSolverr Docker in CI. See `.github/workflows/daily_scrape.yml`.
 
 ---
 
