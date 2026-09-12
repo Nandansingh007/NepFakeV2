@@ -1,6 +1,6 @@
 # NepFakeV2 🇳🇵
 
-[![Daily Scrape](https://github.com/Nandansingh007/NepFakeV2/actions/workflows/daily_scrape.yml/badge.svg)](https://github.com/Nandansingh007/NepFakeV2/actions/workflows/daily_scrape.yml)
+[![NepFakeV2 Pipeline](https://github.com/Nandansingh007/NepFakeV2/actions/workflows/weekly_scrape.yml/badge.svg)](https://github.com/Nandansingh007/NepFakeV2/actions/workflows/weekly_scrape.yml)
 ![Language](https://img.shields.io/badge/language-Nepali-red)
 ![License](https://img.shields.io/badge/license-CC%20BY%204.0-green)
 ![Schema](https://img.shields.io/badge/schema-v1.0-blue)
@@ -13,7 +13,7 @@ NepFakeV2 is the first real, non-synthetic Nepali fact-checking dataset. It is b
 
 All existing Nepali fake news datasets fail in one of two ways: they use machine-translated US political content (introducing topic-domain and MT-artifact confounds), or they use LLM-generated examples that do not reflect real misinformation that actually circulated in Nepal. NepFakeV2 breaks this cycle by sourcing directly from two active IFCN-adjacent Nepali fact-checkers.
 
-The dataset grows automatically — new fact-checks are scraped, normalized, and committed to this repo every day.
+The dataset grows automatically — new fact-checks are scraped, normalized, and committed to this repo every week.
 
 ---
 
@@ -81,19 +81,27 @@ python -c "import json; data=json.load(open('data/nepfakev2.json')); print(len(d
 
 ```mermaid
 flowchart LR
-    T["TechPana\nIFCN-certified"]
-    N["NepalFactCheck\nNon-profit · since 2020"]
+    subgraph SRC["Sources"]
+        T["TechPana\nIFCN-certified"]
+        N["NepalFactCheck\nNon-profit · since 2020"]
+    end
 
-    RAW["raw/\ntechpana/ · nepalfactcheck/\nYYYY-MM-DD.json"]
+    subgraph S1["Stage 1 — Scrape"]
+        RAW["raw/\ntechpana/ · nepalfactcheck/\nYYYY-MM-DD.json"]
+    end
 
-    LM["label_mapper\nNepali verdict → 0/1/2"]
-    NR["normalizer\nBS date → ISO"]
-    DD["deduplicator\nURL-based"]
-    EX["exporter"]
+    subgraph S2["Stage 2 — Normalize"]
+        LM["label_mapper\nNepali verdict → 0/1/2"]
+        NR["normalizer\nBS date → ISO"]
+        DD["deduplicator\nURL-based"]
+        EX["exporter"]
+    end
 
-    CSV["nepfakev2.csv"]
-    JSON["nepfakev2.json"]
-    ST["stats.json"]
+    subgraph OUT["Output"]
+        CSV["nepfakev2.csv"]
+        JSON["nepfakev2.json"]
+        ST["stats.json"]
+    end
 
     T --> RAW
     N --> RAW
@@ -103,40 +111,11 @@ flowchart LR
     EX --> ST
 ```
 
-> GitHub Actions triggers this pipeline daily at 9:15 AM NPT. Only articles published since the last run are fetched. Outputs are auto-committed after every run.
+> GitHub Actions triggers this pipeline weekly. Only articles published since the last run are fetched. Outputs are auto-committed after every run.
 
 ---
 
 <!-- STATS_START -->
-## Dataset Statistics
-
-| | |
-|---|---|
-| 🗃 Raw articles scraped | **933** |
-| ✅ Normalized examples | **928** |
-| 📅 Date range | 2020-03-13 → 2026-09-10 |
-| 🕒 Last updated | 2026-09-12 04:30 UTC |
-
-**Last run:** 2026-09-12 &nbsp;|&nbsp; ✓ TechPana: +0 new &nbsp;|&nbsp; ✓ NepalFactCheck: +0 new
-
-
-### Label Distribution (normalized)
-
-| Label | Count | % |
-|-------|------:|--:|
-| REAL                 |    61 |   6.6% |
-| FALSE_MISLEADING     |   842 |  90.7% |
-| UNVERIFIED           |    25 |   2.7% |
-| UNKNOWN              |     0 |   0.0% |
-
-### Source Breakdown (raw)
-
-| Source | Articles | Verdict profile |
-|--------|----------:|-----------------|
-| TechPana         |  271 | भ्रामक: 73%  मिथ्या: 22%  अपुष्ट: 3%  unmapped: 2%  सही: 1%  ⚠ 5 unmapped |
-| NepalFactCheck   |  662 | भ्रामक: 53%  मिथ्या: 35%  सही: 9%  अपुष्ट: 3% |
-
-Nepali script coverage: **99.8%**
 <!-- STATS_END -->
 
 ## Limitations
@@ -144,6 +123,7 @@ Nepali script coverage: **99.8%**
 - **Label imbalance** — fact-checkers publish mostly debunks by design. 90%+ of examples are FALSE_MISLEADING. This reflects real-world distribution, not a collection error.
 - **claim_text is the article headline** — not an atomically extracted claim. Future versions will improve atomic claim extraction.
 - **Cross-source duplicates** — the same claim may be fact-checked independently by both sources. Both records are retained as independent verifications. Cross-source deduplication requires Nepali NER and is documented as future work.
+- **TechPana uses Cloudflare** — TechPana blocks datacenter IPs. Scraped via FlareSolverr Docker in CI. See `.github/workflows/weekly_scrape.yml`.
 
 ---
 
@@ -156,7 +136,7 @@ Nepali script coverage: **99.8%**
   year      = {2026},
   publisher = {GitHub},
   url       = {https://github.com/Nandansingh007/NepFakeV2},
-  note      = {Schema v1.0. Auto-updated daily.}
+  note      = {Schema v1.0. Auto-updated weekly.}
 }
 ```
 

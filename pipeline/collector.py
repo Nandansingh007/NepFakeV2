@@ -258,6 +258,12 @@ def run_collector() -> None:
         else:
             logger.warning("README.md stats update skipped — check markers")
 
+        from pipeline.hf_push import push_to_huggingface
+        if push_to_huggingface():
+            logger.info("Hugging Face dataset updated")
+        else:
+            logger.warning("Hugging Face push skipped or failed — check HF_TOKEN")
+
     except Exception as e:
         logger.error(f"Stage 2 failed: {e}")
 

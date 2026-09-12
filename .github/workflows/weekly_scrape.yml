@@ -1,7 +1,7 @@
-name: Daily Raw Data Collection
+name: NepFakeV2 Data Pipeline
 on:
   schedule:
-    - cron: '15 0 * * *'
+    - cron: '15 0 * * *'  # Daily now — change to '15 0 * * 1' for weekly before launch
   workflow_dispatch:
 permissions:
   contents: write
@@ -13,6 +13,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Start FlareSolverr
         run: |
           docker run -d \
@@ -22,24 +23,32 @@ jobs:
             ghcr.io/flaresolverr/flaresolverr:latest
           sleep 15
           echo "FlareSolverr started"
+
       - name: Test FlareSolverr
         run: |
           curl -X POST http://localhost:8191/v1 \
             -H "Content-Type: application/json" \
             -d '{"cmd":"request.get","url":"https://techpana.com/factcheck/?tab=nepali&page=1","maxTimeout":60000}'
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: Create logs directory
         run: mkdir -p logs
+
       - name: Run collector
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python -m pipeline.collector
+
       - name: Commit and push
         run: |
           git config --global user.name "NepFakeV2 Bot"
@@ -50,9 +59,10 @@ jobs:
           else
             RAW=$(python -c "import json; d=json.load(open('raw/stats_raw.json')); print(d['total_raw_articles'])")
             NORM=$(python -c "import json; d=json.load(open('data/stats.json')); print(d['total_examples'])")
-            git commit -m "data: daily scrape $(date +'%Y-%m-%d') — raw:${RAW} normalized:${NORM}"
+            git commit -m "data: scrape $(date +'%Y-%m-%d') — raw:${RAW} normalized:${NORM}"
             git push
           fi
+
       - name: Upload logs as artifact
         if: always()
         uses: actions/upload-artifact@v4

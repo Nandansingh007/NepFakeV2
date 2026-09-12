@@ -21,3 +21,6 @@ pytest-cov==7.1.0
 
 # Nepali Date Converter
 nepali-datetime==1.0.8.5
+
+# hugging Face
+huggingface_hub>=0.23.0
