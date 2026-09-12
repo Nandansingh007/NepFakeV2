@@ -8,7 +8,7 @@ date-released: "2026-09-06"
 authors:
   - family-names: "Singh"
     given-names: "Nandan"
-    email: "nandansingh007@gmail.com"
+    email: "nandan.singhs007@gmail.com"
     orcid: ""
 
 repository-code: "https://github.com/Nandansingh007/NepFakeV2"
@@ -39,3 +39,6 @@ references:
   - type: website
     title: "NepalFactCheck"
     url: "https://nepalfactcheck.org"
+  - type: website
+    title: "NepFakeV2 on Hugging Face"
+    url: "https://huggingface.co/datasets/Nandan007/NepFakeV2"
