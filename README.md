@@ -116,6 +116,35 @@ flowchart LR
 ---
 
 <!-- STATS_START -->
+## Dataset Statistics
+
+| | |
+|---|---|
+| 🗃 Raw articles scraped | **935** |
+| ✅ Normalized examples | **935** |
+| 📅 Date range | 2020-03-13 → 2026-09-11 |
+| 🕒 Last updated | 2026-09-12 13:59 UTC |
+
+**Last run:** 2026-09-12 &nbsp;|&nbsp; ✓ TechPana: +272 new &nbsp;|&nbsp; ✓ NepalFactCheck: +663 new
+
+
+### Label Distribution (normalized)
+
+| Label | Count | % |
+|-------|------:|--:|
+| REAL                 |    61 |   6.5% |
+| FALSE_MISLEADING     |   851 |  91.0% |
+| UNVERIFIED           |    23 |   2.5% |
+| UNKNOWN              |     0 |   0.0% |
+
+### Source Breakdown (raw)
+
+| Source | Articles | Verdict profile |
+|--------|----------:|-----------------|
+| TechPana         |  272 | भ्रामक: 57%  मिथ्या: 41%  अपुष्ट: 2%  सही: 1% |
+| NepalFactCheck   |  663 | भ्रामक: 53%  मिथ्या: 35%  सही: 9%  अपुष्ट: 3% |
+
+Nepali script coverage: **99.8%**
 <!-- STATS_END -->
 
 ## Limitations
