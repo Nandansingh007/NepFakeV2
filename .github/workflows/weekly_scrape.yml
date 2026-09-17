@@ -1,7 +1,7 @@
 name: NepFakeV2 Data Pipeline
 on:
   schedule:
-    - cron: '15 0 * * *'  # Daily now — change to '15 0 * * 1' for weekly before launch
+    - cron: '15 0 * * 1'  # weekly
   workflow_dispatch:
 permissions:
   contents: write
