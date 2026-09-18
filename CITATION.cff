@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this dataset, please cite it using the following metadata."
 
-title: "NepFakeV2: A Live Benchmark Dataset for Nepali Misinformation Detection"
+title: "NepFakeV2: A Live, auto-updating Dataset for Nepali Misinformation Detection"
 version: "1.0"
 date-released: "2026-09-06"
 
@@ -30,7 +30,6 @@ keywords:
   - "fact-checking"
   - "natural language processing"
   - "low-resource languages"
-  - "benchmark dataset"
 
 references:
   - type: website

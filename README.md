@@ -161,7 +161,7 @@ Nepali script coverage: **99.8%**
 ```bibtex
 @dataset{singh2026nepfakev2,
   author    = {Singh, Nandan},
-  title     = {NepFakeV2: A Live Benchmark Dataset for Nepali Misinformation Detection},
+  title     = {NepFakeV2: A Live auto-updating Dataset for Nepali Misinformation Detection},
   year      = {2026},
   publisher = {GitHub},
   url       = {https://github.com/Nandansingh007/NepFakeV2},

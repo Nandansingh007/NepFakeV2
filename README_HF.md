@@ -111,7 +111,7 @@ See [stats.json](https://huggingface.co/datasets/Nandan007/NepFakeV2/resolve/mai
 ```bibtex
 @dataset{singh2026nepfakev2,
   author    = {Singh, Nandan},
-  title     = {NepFakeV2: A Live Benchmark Dataset for Nepali Misinformation Detection},
+  title     = {NepFakeV2: A Live auto-updating Dataset for Nepali Misinformation Detection},
   year      = {2026},
   publisher = {Hugging Face},
   url       = {https://huggingface.co/datasets/Nandan007/NepFakeV2},
