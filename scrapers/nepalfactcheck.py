@@ -16,6 +16,10 @@
 #   - date_published stored as raw ISO string as-is
 #   - published_date_iso = first 10 chars for cutoff check ONLY
 #   - published_date_iso NOT stored in raw JSON
+#
+# Fix (21 Sep 2026):
+#   - get_article_links() now extracts BS date from card text
+#     instead of URL approximation (YYYY-MM-01 was causing missed articles)
 # =============================================================================
 
 import re
@@ -27,7 +31,7 @@ from bs4 import BeautifulSoup
 
 from scrapers.base import BaseScraper
 from schema.schema import RawArticle
-from scrapers.techpana import BS_MONTHS
+from scrapers.techpana import BS_MONTHS, parse_bs_date_from_text  # FIX: added parse_bs_date_from_text
 
 
 # =============================================================================
@@ -115,7 +119,7 @@ def extract_verdict_from_body(body_text: str) -> Optional[str]:
 def date_iso_from_url(url: str) -> str:
     """
     Extract approximate date from NepalFactCheck URL pattern /YYYY/MM/.
-    Returns "YYYY-MM-01" — good enough for cutoff comparison.
+    Returns "YYYY-MM-01" — fallback only when BS date not in card text.
     Returns "" if pattern not found.
     """
     match = re.search(r"/(\d{4})/(\d{2})/", url)
@@ -146,67 +150,74 @@ class NepalfactcheckScraper(BaseScraper):
 
         Returns:
             List of (url, date_iso) tuples.
-            date_iso extracted from URL pattern /YYYY/MM/ as "YYYY-MM-01".
-            Approximate but sufficient for cutoff comparison.
-            Returns "" for date_iso if URL pattern not matched.
+            date_iso extracted from BS date in card text
+            e.g. "अशोज ५, २०८३" → "2026-09-21"
+            Falls back to URL pattern "YYYY-MM-01" if no BS date found.
         """
         html = self.fetch_page(page_url)
         if not html:
             return []
 
         soup = BeautifulSoup(html, "lxml")
-        raw_links = []
+        link_tuples = []
+        seen = set()
+
+        def extract_card_date(container) -> str:
+            """Extract BS date from card text. Falls back to URL pattern."""
+            card_text = container.get_text(" ", strip=True)
+            date_iso = parse_bs_date_from_text(card_text)
+            if date_iso:
+                return date_iso
+            a = container.find("a", href=True)
+            if a:
+                return date_iso_from_url(a["href"])
+            return ""
 
         # Strategy 1: <article> tags
         for article_tag in soup.find_all("article"):
+            date_iso = extract_card_date(article_tag)
             for a in article_tag.find_all("a", href=True):
                 href = a["href"]
-                if re.search(r"/\d{4}/\d{2}/", href):
-                    if href.startswith("http"):
-                        raw_links.append(href)
-                    else:
-                        raw_links.append(
-                            urljoin("https://nepalfactcheck.org", href)
-                        )
+                if not re.search(r"/\d{4}/\d{2}/", href):
+                    continue
+                url = href if href.startswith("http") else urljoin("https://nepalfactcheck.org", href)
+                if url not in seen:
+                    seen.add(url)
+                    link_tuples.append((url, date_iso))
 
         # Strategy 2: heading tags h2/h3
-        if not raw_links:
+        if not link_tuples:
             for tag in ["h2", "h3"]:
                 for heading in soup.find_all(tag):
                     a = heading.find("a", href=True)
-                    if a:
-                        href = a["href"]
-                        if href.startswith("http"):
-                            raw_links.append(href)
-                        else:
-                            raw_links.append(
-                                urljoin("https://nepalfactcheck.org", href)
-                            )
+                    if not a:
+                        continue
+                    href = a["href"]
+                    url = href if href.startswith("http") else urljoin("https://nepalfactcheck.org", href)
+                    card = heading.find_parent("div") or heading
+                    date_iso = extract_card_date(card)
+                    if url not in seen:
+                        seen.add(url)
+                        link_tuples.append((url, date_iso))
 
         # Strategy 3: all links matching article URL pattern
-        if not raw_links:
+        if not link_tuples:
             for a in soup.find_all("a", href=True):
                 href = a["href"]
                 if re.search(r"nepalfactcheck\.org/\d{4}/\d{2}/\S+", href):
-                    raw_links.append(href)
+                    if href not in seen:
+                        seen.add(href)
+                        link_tuples.append((href, date_iso_from_url(href)))
 
-        # Filter to article URLs only
-        raw_links = [
-            l for l in raw_links
-            if re.search(r"/\d{4}/\d{2}/", l)
-            and "nepalfactcheck.org" in l
-            and not l.endswith("/category/")
-            and not l.endswith("/tag/")
-            and "?p=" not in l
+        # Filter out category/tag/pagination URLs
+        link_tuples = [
+            (url, date_iso) for url, date_iso in link_tuples
+            if re.search(r"/\d{4}/\d{2}/", url)
+            and "nepalfactcheck.org" in url
+            and not url.endswith("/category/")
+            and not url.endswith("/tag/")
+            and "?p=" not in url
         ]
-
-        # Deduplicate preserving order, attach date_iso from URL
-        seen = set()
-        link_tuples = []
-        for url in raw_links:
-            if url not in seen:
-                seen.add(url)
-                link_tuples.append((url, date_iso_from_url(url)))
 
         self.logger.debug(
             f"Found {len(link_tuples)} article links on {page_url}"
