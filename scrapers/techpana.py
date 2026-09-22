@@ -58,6 +58,7 @@ def parse_bs_date(date_str: str) -> Optional[str]:
     """
     try:
         date_str = date_str.strip()
+        date_str = date_str.replace("अशोज", "असोज")  # normalize NFC spelling
         parts = date_str.split()
         if len(parts) < 3:
             return None
@@ -84,6 +85,7 @@ def parse_bs_date_from_text(text: str) -> Optional[str]:
     Used to get date_iso from listing page card text.
     Returns ISO "YYYY-MM-DD" or None.
     """
+    text = text.replace("अशोज", "असोज")  # normalize NFC spelling
     for month in BS_MONTHS.keys():
         pattern = rf"{month}\s+[०-९\d]+,?\s+[०-९\d]{{4}}"
         match = re.search(pattern, text)
