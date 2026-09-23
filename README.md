@@ -123,7 +123,7 @@ flowchart LR
 | 🗃 Raw articles scraped | **935** |
 | ✅ Normalized examples | **935** |
 | 📅 Date range | 2020-03-13 → 2026-09-11 |
-| 🕒 Last updated | 2026-09-23 04:45 UTC |
+| 🕒 Last updated | 2026-09-23 05:57 UTC |
 
 **Last run:** 2026-09-23 &nbsp;|&nbsp; ✓ TechPana: +0 new &nbsp;|&nbsp; ✓ NepalFactCheck: +0 new
 
