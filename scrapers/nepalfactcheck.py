@@ -146,12 +146,19 @@ class NepalfactcheckScraper(BaseScraper):
     def get_article_links(self, page_url: str) -> list[tuple[str, str]]:
         """
         Extract article URLs and listing-page dates from NepalFactCheck.
-        WordPress — articles inside <article> tags or heading tags.
+
+        NFC HTML structure (verified Sep 2026):
+          <div class="item-desc lowerpart">
+            अशोज ६, २०८३              ← BS date is here
+            <a href="/2026/09/slug">title</a>
+            excerpt...
+          </div>
+
+        No <article> tags used. Date is in the parent div of the link.
 
         Returns:
             List of (url, date_iso) tuples.
-            date_iso extracted from BS date in card text
-            e.g. "अशोज ५, २०८३" → "2026-09-21"
+            date_iso extracted from parent div text via parse_bs_date_from_text().
             Falls back to URL pattern "YYYY-MM-01" if no BS date found.
         """
         html = self.fetch_page(page_url)
@@ -162,26 +169,15 @@ class NepalfactcheckScraper(BaseScraper):
         link_tuples = []
         seen = set()
 
-        def extract_card_date(container) -> str:
-            """Extract BS date from card text. Falls back to URL pattern."""
-            card_text = container.get_text(" ", strip=True)
-            date_iso = parse_bs_date_from_text(card_text)
-            if date_iso:
-                return date_iso
-            a = container.find("a", href=True)
-            if a:
-                return date_iso_from_url(a["href"])
-            return ""
-
-        # Strategy 1: <article> tags
+        # Strategy 1: <article> tags (some server environments render these)
         articles_found = soup.find_all("article")
         self.logger.info(f"NFC raw <article> count: {len(articles_found)}")
 
         for article_tag in articles_found:
-            card_text = article_tag.get_text(" ", strip=True)
-            self.logger.info(f"NFC card text: {card_text[:200]}")
-            date_iso = extract_card_date(article_tag)
-            self.logger.info(f"NFC date extracted: {date_iso}")
+            # Date and title are in the PARENT div, not inside <article>
+            parent = article_tag.find_parent("div") or article_tag
+            parent_text = parent.get_text(" ", strip=True)
+            date_iso = parse_bs_date_from_text(parent_text) or ""
             for a in article_tag.find_all("a", href=True):
                 href = a["href"]
                 if not re.search(r"/\d{4}/\d{2}/", href):
@@ -189,7 +185,7 @@ class NepalfactcheckScraper(BaseScraper):
                 url = href if href.startswith("http") else urljoin("https://nepalfactcheck.org", href)
                 if url not in seen:
                     seen.add(url)
-                    link_tuples.append((url, date_iso))
+                    link_tuples.append((url, date_iso or date_iso_from_url(url)))
 
         self.logger.info(f"NFC Strategy 1 (<article> tags): {len(link_tuples)} links")
 
@@ -202,8 +198,10 @@ class NepalfactcheckScraper(BaseScraper):
                         continue
                     href = a["href"]
                     url = href if href.startswith("http") else urljoin("https://nepalfactcheck.org", href)
-                    card = heading.find_parent("div") or heading
-                    date_iso = extract_card_date(card)
+                    parent = heading.find_parent("div") or heading
+                    date_iso = parse_bs_date_from_text(
+                        parent.get_text(" ", strip=True)
+                    ) or date_iso_from_url(url)
                     if url not in seen:
                         seen.add(url)
                         link_tuples.append((url, date_iso))
@@ -211,13 +209,19 @@ class NepalfactcheckScraper(BaseScraper):
             self.logger.info(f"NFC Strategy 2 (h2/h3): {len(link_tuples)} links")
 
         # Strategy 3: all links matching article URL pattern
+        # Verified structure: date is in <div class="item-desc lowerpart">
+        # which is the direct parent of the <a> tag
         if not link_tuples:
             for a in soup.find_all("a", href=True):
                 href = a["href"]
                 if re.search(r"nepalfactcheck\.org/\d{4}/\d{2}/\S+", href):
                     if href not in seen:
                         seen.add(href)
-                        link_tuples.append((href, date_iso_from_url(href)))
+                        parent = a.find_parent("div") or a
+                        date_iso = parse_bs_date_from_text(
+                            parent.get_text(" ", strip=True)
+                        ) or date_iso_from_url(href)
+                        link_tuples.append((href, date_iso))
 
             self.logger.info(f"NFC Strategy 3 (all links): {len(link_tuples)} links")
 
@@ -231,11 +235,11 @@ class NepalfactcheckScraper(BaseScraper):
             and "?p=" not in url
         ]
 
-        self.logger.debug(
+        self.logger.info(
             f"Found {len(link_tuples)} article links on {page_url}"
         )
         return link_tuples
-    
+
     def scrape_article(self, url: str) -> Optional[RawArticle]:
         """
         Scrape a single NepalFactCheck article.
