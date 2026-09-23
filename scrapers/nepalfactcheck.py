@@ -165,7 +165,6 @@ class NepalfactcheckScraper(BaseScraper):
         def extract_card_date(container) -> str:
             """Extract BS date from card text. Falls back to URL pattern."""
             card_text = container.get_text(" ", strip=True)
-            self.logger.info(f"NFC card text (first 150): {card_text[:150]}")
             date_iso = parse_bs_date_from_text(card_text)
             if date_iso:
                 return date_iso
@@ -175,8 +174,14 @@ class NepalfactcheckScraper(BaseScraper):
             return ""
 
         # Strategy 1: <article> tags
-        for article_tag in soup.find_all("article"):
+        articles_found = soup.find_all("article")
+        self.logger.info(f"NFC raw <article> count: {len(articles_found)}")
+
+        for article_tag in articles_found:
+            card_text = article_tag.get_text(" ", strip=True)
+            self.logger.info(f"NFC card text: {card_text[:200]}")
             date_iso = extract_card_date(article_tag)
+            self.logger.info(f"NFC date extracted: {date_iso}")
             for a in article_tag.find_all("a", href=True):
                 href = a["href"]
                 if not re.search(r"/\d{4}/\d{2}/", href):
@@ -230,7 +235,7 @@ class NepalfactcheckScraper(BaseScraper):
             f"Found {len(link_tuples)} article links on {page_url}"
         )
         return link_tuples
-
+    
     def scrape_article(self, url: str) -> Optional[RawArticle]:
         """
         Scrape a single NepalFactCheck article.
