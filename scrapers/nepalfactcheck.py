@@ -164,10 +164,8 @@ class NepalfactcheckScraper(BaseScraper):
 
         def extract_card_date(container) -> str:
             """Extract BS date from card text. Falls back to URL pattern."""
-            import logging
-            _logger = logging.getLogger("nepfakev2.nepalfactcheck")
             card_text = container.get_text(" ", strip=True)
-            _logger.debug(f"NFC card text (first 150): {card_text[:150]}")
+            self.logger.info(f"NFC card text (first 150): {card_text[:150]}")
             date_iso = parse_bs_date_from_text(card_text)
             if date_iso:
                 return date_iso
@@ -188,6 +186,8 @@ class NepalfactcheckScraper(BaseScraper):
                     seen.add(url)
                     link_tuples.append((url, date_iso))
 
+        self.logger.info(f"NFC Strategy 1 (<article> tags): {len(link_tuples)} links")
+
         # Strategy 2: heading tags h2/h3
         if not link_tuples:
             for tag in ["h2", "h3"]:
@@ -203,6 +203,8 @@ class NepalfactcheckScraper(BaseScraper):
                         seen.add(url)
                         link_tuples.append((url, date_iso))
 
+            self.logger.info(f"NFC Strategy 2 (h2/h3): {len(link_tuples)} links")
+
         # Strategy 3: all links matching article URL pattern
         if not link_tuples:
             for a in soup.find_all("a", href=True):
@@ -211,6 +213,8 @@ class NepalfactcheckScraper(BaseScraper):
                     if href not in seen:
                         seen.add(href)
                         link_tuples.append((href, date_iso_from_url(href)))
+
+            self.logger.info(f"NFC Strategy 3 (all links): {len(link_tuples)} links")
 
         # Filter out category/tag/pagination URLs
         link_tuples = [
