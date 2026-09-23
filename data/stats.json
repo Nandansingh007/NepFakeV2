@@ -1,47 +1,47 @@
 {
-  "last_updated": "2026-09-23T06:22:52.395348+00:00",
-  "total_examples": 935,
-  "total_including_unknown": 935,
+  "last_updated": "2026-09-23T06:57:37.582297+00:00",
+  "total_examples": 941,
+  "total_including_unknown": 941,
   "label_distribution": {
     "REAL": {
-      "count": 61,
-      "pct": "6.5%"
+      "count": 62,
+      "pct": "6.6%"
     },
     "FALSE_MISLEADING": {
-      "count": 851,
+      "count": 856,
       "pct": "91.0%"
     },
     "UNVERIFIED": {
       "count": 23,
-      "pct": "2.5%"
+      "pct": "2.4%"
     }
   },
   "source_distribution": {
     "nepalfactcheck": {
-      "count": 663,
-      "pct": "70.9%"
+      "count": 669,
+      "pct": "71.1%"
     },
     "techpana": {
       "count": 272,
-      "pct": "29.1%"
+      "pct": "28.9%"
     }
   },
   "topic_distribution": {
     "politics": {
-      "count": 447,
-      "pct": "47.8%"
+      "count": 448,
+      "pct": "47.6%"
     },
     "other": {
-      "count": 248,
+      "count": 249,
       "pct": "26.5%"
     },
     "environment": {
-      "count": 76,
-      "pct": "8.1%"
+      "count": 78,
+      "pct": "8.3%"
     },
     "technology": {
-      "count": 72,
-      "pct": "7.7%"
+      "count": 74,
+      "pct": "7.9%"
     },
     "health": {
       "count": 61,
@@ -58,12 +58,12 @@
   },
   "date_range": {
     "oldest": "2020-03-13",
-    "newest": "2026-09-11",
-    "total_with_date": 935,
+    "newest": "2026-09-22",
+    "total_with_date": 941,
     "total_without_date": 0
   },
   "language": {
-    "nepali_script": 933,
+    "nepali_script": 939,
     "nepali_pct": "99.8%"
   },
   "quality": {
