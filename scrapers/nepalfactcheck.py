@@ -164,7 +164,10 @@ class NepalfactcheckScraper(BaseScraper):
 
         def extract_card_date(container) -> str:
             """Extract BS date from card text. Falls back to URL pattern."""
+            import logging
+            _logger = logging.getLogger("nepfakev2.nepalfactcheck")
             card_text = container.get_text(" ", strip=True)
+            _logger.debug(f"NFC card text (first 150): {card_text[:150]}")
             date_iso = parse_bs_date_from_text(card_text)
             if date_iso:
                 return date_iso
