@@ -5,19 +5,26 @@
 ![License](https://img.shields.io/badge/license-CC%20BY%204.0-green)
 ![Schema](https://img.shields.io/badge/schema-v1.0-blue)
 
+**Live, auto-updating data infrastructure for Nepali fact-checking and misinformation research.**
+
 ---
 
 ## What Is This
 
-NepFakeV2 is the first real, non-synthetic Nepali fact-checking dataset. It is built directly from verified fact-checks published by professional Nepali fact-checkers — not machine-translated, not LLM-generated, not GPT-generated absurdism.
+NepFakeV2 is primarily a **data collection infrastructure for researchers**. It continuously collects fact-checks published by professional Nepali fact-checkers and exposes them in two layers:
 
-All existing Nepali fake news datasets fail in one of two ways: they use machine-translated US political content (introducing topic-domain and MT-artifact confounds), or they use LLM-generated examples that do not reflect real misinformation that actually circulated in Nepal. NepFakeV2 breaks this cycle by sourcing directly from two active IFCN-adjacent Nepali fact-checkers.
+- **Raw layer (`raw/`)** — fact-checks preserved exactly as scraped, stored separately by source and collection date (`raw/<source>/YYYY-MM-DD.json`). Nothing is relabelled, merged, or dropped. Use this layer to apply your own cleaning, deduplication, annotation, or modelling approach.
+- **Normalized layer (`data/`)** — a convenient, research-ready representation: verdicts mapped to a shared label set, Bikram Sambat dates converted to ISO, and every record in one consistent schema.
 
-The dataset grows automatically — new fact-checks are scraped, normalized, and committed to this repo every week.
+Every record is real, human-verified content that circulated in Nepal — not machine-translated from English-language datasets and not LLM-generated. Publicly available Nepali fake-news datasets typically rely on one of those two shortcuts, which introduce topic-domain and translation-artifact confounds or fail to reflect the misinformation Nepali audiences actually encounter.
+
+New fact-checks are scraped, normalized, and committed to this repo automatically every week.
 
 ---
 
 ## Getting Started
+
+**Normalized dataset:**
 
 ```python
 import pandas as pd
@@ -28,16 +35,37 @@ df = pd.read_csv(
 print(df[["claim_text", "verdict_label", "verdict_label_text", "source_name"]].head())
 ```
 
-Or clone and use locally:
+Also available on Hugging Face: [`Nandan007/NepFakeV2`](https://huggingface.co/datasets/Nandan007/NepFakeV2) (normalized layer only).
+
+**Raw layer** (clone the repo — raw files are published on GitHub only):
 
 ```bash
 git clone https://github.com/Nandansingh007/NepFakeV2.git
-python -c "import json; data=json.load(open('data/nepfakev2.json')); print(len(data), 'examples')"
+cd NepFakeV2
 ```
+
+```python
+import json, glob
+import pandas as pd
+
+rows = []
+for path in sorted(glob.glob("raw/*/*.json")):
+    if path.endswith("stats_raw.json"):
+        continue
+    source, collected = path.split("/")[-2], path.split("/")[-1][:-5]
+    for rec in json.load(open(path, encoding="utf-8")):
+        rows.append({**rec, "_source": source, "_collected_on": collected})
+
+raw = pd.DataFrame(rows)
+print(raw.columns.tolist())
+print(raw["raw_verdict_text"].value_counts())
+```
+
+Raw verdicts are kept in the original Nepali (e.g. भ्रामक, मिथ्या, सही, अपुष्ट) so you can define your own label mapping.
 
 ---
 
-## Labels
+## Labels (normalized layer)
 
 | Label | Name | Description |
 |-------|------|-------------|
@@ -45,7 +73,7 @@ python -c "import json; data=json.load(open('data/nepfakev2.json')); print(len(d
 | 1 | FALSE_MISLEADING | Debunked — false or misleading content |
 | 2 | UNVERIFIED | Cannot be confirmed or denied |
 
-> **On label imbalance:** 90%+ of examples are FALSE_MISLEADING. This reflects real-world distribution — fact-checkers publish mostly debunks by design. This is not a collection error. Researchers needing label balance should supplement with a verified news source using the provided scraper base class.
+See [Limitations](#limitations) on label imbalance.
 
 ---
 
@@ -54,11 +82,11 @@ python -c "import json; data=json.load(open('data/nepfakev2.json')); print(len(d
 | Source | Type | Language | Coverage |
 |--------|------|----------|----------|
 | [TechPana](https://techpana.com/factcheck/) | IFCN-certified fact-checker | Nepali | Feb 2025 → present |
-| [NepalFactCheck](https://nepalfactcheck.org) | Non-profit fact-checker (CMR-Nepal) | Nepali | Mar 2020 → present |
+| [NepalFactCheck](https://nepalfactcheck.org) | Non-profit fact-checker run by CMR-Nepal (not IFCN-certified) | Nepali | Mar 2020 → present |
 
 ---
 
-## Schema
+## Schema (normalized layer)
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -86,7 +114,7 @@ flowchart LR
         N["NepalFactCheck\nNon-profit · since 2020"]
     end
 
-    subgraph S1["Stage 1 — Scrape"]
+    subgraph S1["Stage 1 — Scrape (raw layer)"]
         RAW["raw/\ntechpana/ · nepalfactcheck/\nYYYY-MM-DD.json"]
     end
 
@@ -97,7 +125,7 @@ flowchart LR
         EX["exporter"]
     end
 
-    subgraph OUT["Output"]
+    subgraph OUT["Normalized layer"]
         CSV["nepfakev2.csv"]
         JSON["nepfakev2.json"]
         ST["stats.json"]
@@ -111,7 +139,7 @@ flowchart LR
     EX --> ST
 ```
 
-> GitHub Actions triggers this pipeline weekly. Only articles published since the last run are fetched. Outputs are auto-committed after every run.
+> GitHub Actions runs this pipeline weekly. Only articles published since the last run are fetched. Outputs are auto-committed to this repo and pushed to Hugging Face after every run.
 
 ---
 
@@ -149,10 +177,10 @@ Nepali script coverage: **99.8%**
 
 ## Limitations
 
-- **Label imbalance** — fact-checkers publish mostly debunks by design. 90%+ of examples are FALSE_MISLEADING. This reflects real-world distribution, not a collection error.
-- **claim_text is the article headline** — not an atomically extracted claim. Future versions will improve atomic claim extraction.
-- **Cross-source duplicates** — the same claim may be fact-checked independently by both sources. Both records are retained as independent verifications. Cross-source deduplication requires Nepali NER and is documented as future work.
-- **TechPana uses Cloudflare** — TechPana blocks datacenter IPs. Scraped via FlareSolverr Docker in CI. See `.github/workflows/weekly_scrape.yml`.
+- **Label imbalance** — fact-checkers publish mostly debunks by design, so 90%+ of normalized examples are FALSE_MISLEADING. This reflects the source distribution, not a collection error. Researchers needing label balance can supplement with a verified news source using the provided scraper base class.
+- **`claim_text` is the article headline** — not an atomically extracted claim.
+- **Cross-source duplicates are kept intentionally** — the same claim may be fact-checked independently by both sources. These records are preserved as separate observations with their original provenance, since they represent independent verifications. Deduplication in the pipeline is URL-based only; claim-level deduplication or clustering can be performed as a downstream task.
+- **TechPana uses Cloudflare** — TechPana blocks datacenter IPs and is scraped via FlareSolverr in CI. See `.github/workflows/weekly_scrape.yml`.
 
 ---
 
@@ -161,11 +189,11 @@ Nepali script coverage: **99.8%**
 ```bibtex
 @dataset{singh2026nepfakev2,
   author    = {Singh, Nandan},
-  title     = {NepFakeV2: A Live auto-updating Dataset for Nepali Misinformation Detection},
+  title     = {NepFakeV2: Live Auto-Updating Data Infrastructure for Nepali Fact-Checking and Misinformation Research},
   year      = {2026},
   publisher = {GitHub},
   url       = {https://github.com/Nandansingh007/NepFakeV2},
-  note      = {Schema v1.0. Auto-updated weekly.}
+  note      = {Schema v1.0. Auto-updated weekly. Cite the collection date of the snapshot you used.}
 }
 ```
 
@@ -173,7 +201,7 @@ Nepali script coverage: **99.8%**
 
 ## License
 
-- **Data** (`data/`): [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **Data** (`data/`, `raw/`): [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - **Code**: [MIT](LICENSE)
 
 ---
