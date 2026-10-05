@@ -148,12 +148,12 @@ flowchart LR
 
 | | |
 |---|---|
-| 🗃 Raw articles scraped | **947** |
-| ✅ Normalized examples | **947** |
-| 📅 Date range | 2020-03-13 → 2026-09-25 |
-| 🕒 Last updated | 2026-09-28 05:18 UTC |
+| 🗃 Raw articles scraped | **952** |
+| ✅ Normalized examples | **952** |
+| 📅 Date range | 2020-03-13 → 2026-10-04 |
+| 🕒 Last updated | 2026-10-05 05:31 UTC |
 
-**Last run:** 2026-09-28 &nbsp;|&nbsp; ✓ TechPana: +2 new &nbsp;|&nbsp; ✓ NepalFactCheck: +4 new
+**Last run:** 2026-10-05 &nbsp;|&nbsp; ✓ TechPana: +1 new &nbsp;|&nbsp; ✓ NepalFactCheck: +4 new
 
 
 ### Label Distribution (normalized)
@@ -161,7 +161,7 @@ flowchart LR
 | Label | Count | % |
 |-------|------:|--:|
 | REAL                 |    62 |   6.5% |
-| FALSE_MISLEADING     |   862 |  91.0% |
+| FALSE_MISLEADING     |   867 |  91.1% |
 | UNVERIFIED           |    23 |   2.4% |
 | UNKNOWN              |     0 |   0.0% |
 
@@ -169,8 +169,8 @@ flowchart LR
 
 | Source | Articles | Verdict profile |
 |--------|----------:|-----------------|
-| TechPana         |  274 | भ्रामक: 57%  मिथ्या: 41%  अपुष्ट: 2%  सही: 1% |
-| NepalFactCheck   |  673 | भ्रामक: 53%  मिथ्या: 35%  सही: 9%  अपुष्ट: 3% |
+| TechPana         |  275 | भ्रामक: 57%  मिथ्या: 41%  अपुष्ट: 2%  सही: 1% |
+| NepalFactCheck   |  677 | भ्रामक: 54%  मिथ्या: 35%  सही: 9%  अपुष्ट: 3% |
 
 Nepali script coverage: **99.8%**
 <!-- STATS_END -->
