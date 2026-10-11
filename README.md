@@ -81,8 +81,8 @@ See [Limitations](#limitations) on label imbalance.
 
 | Source | Type | Language | Coverage |
 |--------|------|----------|----------|
-| [TechPana](https://techpana.com/factcheck/) | IFCN-certified fact-checker | Nepali | Jul 2024 → present |
-| [NepalFactCheck](https://nepalfactcheck.org) | Non-profit fact-checker run by CMR-Nepal | Nepali | Mar 2020 → present |
+| [TechPana](https://techpana.com/factcheck/) | Fact-checker following the IFCN code of principles | Nepali | Feb 2025 → present (one earlier article, Jul 2024) |
+| [NepalFactCheck](https://nepalfactcheck.org) | IFCN-certified fact-checker run by CMR-Nepal | Nepali | Mar 2020 → present |
 
 ---
 
