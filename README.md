@@ -13,7 +13,7 @@
 
 NepFakeV2 is primarily a **data collection infrastructure for researchers**. It continuously collects fact-checks published by professional Nepali fact-checkers and exposes them in two layers:
 
-- **Raw layer (`raw/`)** — fact-checks preserved exactly as scraped, stored separately by source and collection date (`raw/<source>/YYYY-MM-DD.json`). Nothing is relabelled, merged, or dropped. Use this layer to apply your own cleaning, deduplication, annotation, or modelling approach.
+- **Raw layer (`raw/`)** — fact-checks preserved exactly as scraped, stored separately by source and collection date (`raw/<source>/YYYY-MM-DD.json`). Nothing is relabelled, merged, or dropped. Use this layer to apply your own cleaning, deduplication, annotation, or modelling approach. Raw `raw_verdict_text` is exactly what the scraper recorded and includes the errors listed in [Data corrections](#data-corrections); use `body_text` as the source of truth.
 - **Normalized layer (`data/`)** — a convenient, research-ready representation: verdicts mapped to a shared label set, Bikram Sambat dates converted to ISO, and every record in one consistent schema.
 
 Every record is real, human-verified content that circulated in Nepal — not machine-translated from English-language datasets and not LLM-generated. Publicly available Nepali fake-news datasets typically rely on one of those two shortcuts, which introduce topic-domain and translation-artifact confounds or fail to reflect the misinformation Nepali audiences actually encounter.
@@ -81,8 +81,8 @@ See [Limitations](#limitations) on label imbalance.
 
 | Source | Type | Language | Coverage |
 |--------|------|----------|----------|
-| [TechPana](https://techpana.com/factcheck/) | IFCN-certified fact-checker | Nepali | Feb 2025 → present |
-| [NepalFactCheck](https://nepalfactcheck.org) | Non-profit fact-checker run by CMR-Nepal (not IFCN-certified) | Nepali | Mar 2020 → present |
+| [TechPana](https://techpana.com/factcheck/) | IFCN-certified fact-checker | Nepali | Jul 2024 → present |
+| [NepalFactCheck](https://nepalfactcheck.org) | Non-profit fact-checker run by CMR-Nepal | Nepali | Mar 2020 → present |
 
 ---
 
@@ -174,6 +174,22 @@ flowchart LR
 
 Nepali script coverage: **99.8%**
 <!-- STATS_END -->
+
+## Data corrections
+
+**2026-10-11 (commits 770f96f, 8a37091).** An audit against each article's own text found five scraper errors. The raw layer is unchanged; the normalized layer now rebuilds labels from the saved article text.
+
+| Problem | Affected | Correction |
+|---|---|---|
+| NepalFactCheck verdict read from a sidebar article's icon | 39 of 677 (33 false/misleading stored as REAL) | Verdict from the article's own header tag |
+| TechPana verdict read from any image; conclusion cut off by an in-article related-news box | 8 of 271 (7 REAL, 1 UNVERIFIED stored as FALSE_MISLEADING) | Verdict from the article's own conclusion, negations handled |
+| TechPana date taken from the sidebar | 145 of 275 | Date from the article's own date line |
+| NepalFactCheck explainers (एक्सप्लेनर) stored as REAL | 17 | Excluded: they explain a topic and check no claim |
+| TechPana non-fact-check articles | 4 | Excluded by the fact-check filter |
+
+Normalized examples went from 952 to 931 on the same raw data. If you used an earlier snapshot, re-download.
+
+---
 
 ## Limitations
 
