@@ -25,8 +25,10 @@
 #     returned a sidebar date: 145 of 275 dates were wrong (148 articles got
 #     "भदौ २६, २०८३").
 #   - Verdict: removed the search over ALL <img> tags (it picked sidebar
-#     badges). Body fallback now reads only the LAST "निष्कर्ष" section,
-#     matches whole words, and returns a verdict only if exactly one is named.
+#     badges). Body fallback now reads only the LAST "निष्कर्ष" section
+#     (found before stripping the sidebar), ignores negations such as
+#     "सही होइन", matches whole words, and returns a verdict only if exactly
+#     one is named.
 #   - is_factcheck_article() was defined but never called; it is now called,
 #     with a stricter test (dropped 4 non-fact-checks: ChatGPT tips, Redmi,
 #     iPhone, an EV-fire news story).
@@ -246,14 +248,18 @@ def extract_verdict_from_body(body_text: str) -> Optional[str]:
     if not body_text:
         return None
 
-    # Strip sidebar content first
-    clean_text = strip_sidebar(body_text)
-
-    # Only the LAST "निष्कर्ष" heading (the conclusion box, not the narrative)
-    headings = list(re.finditer(r"\n\s*निष्कर्ष\s*\n", clean_text))
+    # Only the LAST "निष्कर्ष" heading (the conclusion box, not the narrative).
+    # Find it BEFORE stripping the sidebar: TechPana puts a "सम्बन्धित समाचार"
+    # box inside the article, and stripping first threw the conclusion away.
+    headings = list(re.finditer(r"\n\s*निष्कर्ष\s*\n", body_text))
     if not headings:
         return None
-    search_text = clean_text[headings[-1].end():]
+    search_text = strip_sidebar(body_text[headings[-1].end():])
+
+    # "सही होइन" / "सत्य छैन" means NOT true: drop negated phrases first
+    search_text = re.sub(
+        r"(?:सही|सत्य|साँचो)\s*(?:हो\s*)?(?:होइन|हैन|छैन|होइनन्|नभएको|नरहेको|हुँदैन|ठहरिँदैन)",
+        " ", search_text)
 
     # Whole words only ("भ्रम" must not match "भ्रमण"); answer only if exactly
     # one verdict is named, otherwise leave it for a person to decide

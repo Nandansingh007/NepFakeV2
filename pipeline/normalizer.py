@@ -27,7 +27,8 @@ from config.settings import is_devanagari, RAW_DIRS, SCHEMA_VERSION
 from schema.schema import NepFakeV2Example, make_example_id
 from schema.validator import validate_batch
 from pipeline.label_mapper import map_verdict
-from scrapers.techpana import BS_MONTHS, parse_bs_date, extract_own_date, is_factcheck_article
+from scrapers.techpana import (BS_MONTHS, parse_bs_date, extract_own_date,
+                               is_factcheck_article, extract_verdict_from_body)
 from scrapers.nepalfactcheck import extract_verdict_from_header
 
 logger = logging.getLogger("nepfakev2.normalizer")
@@ -196,6 +197,10 @@ def normalize_article(
         # Date from the article's own date line. The old scraper often took
         # a sidebar date: 145 of 275 dates were wrong.
         raw_date = extract_own_date(body_text) or raw_date
+        # Verdict from the fact-checker's own conclusion ("निष्कर्ष") when it
+        # names exactly one; the stored value often came from sidebar badges
+        # (e.g. claims concluded "साँचो हो" were stored as false).
+        raw_verdict = extract_verdict_from_body(body_text) or raw_verdict
     annotator_notes = raw.get("annotator_notes", "")
 
     # --- Skip if no title or body ---
