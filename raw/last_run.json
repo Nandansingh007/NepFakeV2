@@ -1,16 +1,16 @@
 {
   "last_run_date": "2026-10-11",
-  "run_id": "run_20261011_063022",
+  "run_id": "run_20261011_064652",
   "sources": {
     "techpana": {
       "status": "success",
-      "articles_scraped": 1,
+      "articles_scraped": 0,
       "last_run_date": "2026-10-11",
       "last_published_date": "2026-10-09"
     },
     "nepalfactcheck": {
       "status": "success",
-      "articles_scraped": 3,
+      "articles_scraped": 0,
       "last_run_date": "2026-10-11",
       "last_published_date": "2026-10-09"
     }
