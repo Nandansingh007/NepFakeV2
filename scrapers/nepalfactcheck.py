@@ -70,6 +70,15 @@ CONCLUSION_MARKERS = [
 ]
 
 
+def extract_verdict_from_header(body_text: str) -> Optional[str]:
+    """Article's own tag line (3rd line of body_text). The page-wide SVG search
+    picked sidebar badges: 39 of 677 verdicts wrong (fixed Oct 2026)."""
+    lines = body_text.split("\n") if body_text else []
+    head = lines[2] if len(lines) > 2 else ""
+    found = [v for v in ("मिथ्या सूचना", "भ्रामक सूचना", "सही सूचना", "अपुष्ट सूचना") if v in head]
+    return found[0] if len(found) == 1 else None
+
+
 def extract_verdict_from_svg(soup: BeautifulSoup) -> Optional[str]:
     """Extract verdict from SVG image filename."""
     for img in soup.find_all("img", src=True):
@@ -346,7 +355,7 @@ class NepalfactcheckScraper(BaseScraper):
                     author = author_link.get_text(strip=True)
 
             # --- Verdict ---
-            raw_verdict = extract_verdict_from_svg(soup)
+            raw_verdict = extract_verdict_from_header(body_text)
 
             if not raw_verdict:
                 raw_verdict = extract_verdict_from_title(title)

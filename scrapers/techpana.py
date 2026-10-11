@@ -19,6 +19,17 @@
 #   - Fixed img src search to check ALL img tags not just first
 # Fix (10 Sep 2026):
 #   - Strip leading "Shares\n" widget artifact from body_text
+# Fixes (12 Oct 2026), all checked against the 275 raw articles:
+#   - Date: take the article's own date line (first BS date in body_text).
+#     The old loop searched the whole page in calendar-month order and often
+#     returned a sidebar date: 145 of 275 dates were wrong (148 articles got
+#     "भदौ २६, २०८३").
+#   - Verdict: removed the search over ALL <img> tags (it picked sidebar
+#     badges). Body fallback now reads only the LAST "निष्कर्ष" section,
+#     matches whole words, and returns a verdict only if exactly one is named.
+#   - is_factcheck_article() was defined but never called; it is now called,
+#     with a stricter test (dropped 4 non-fact-checks: ChatGPT tips, Redmi,
+#     iPhone, an EV-fire news story).
 # =============================================================================
 
 import re
@@ -113,6 +124,19 @@ def date_iso_from_url(url: str) -> Optional[str]:
     return None
 
 
+def extract_own_date(body_text: str) -> Optional[str]:
+    """
+    The article's own date line, e.g. "साउन ६, २०८३ १६:१०" under the author:
+    the FIRST BS date (by position) in the first 400 chars of body_text.
+    Found for 274 of 275 articles (Oct 2026).
+    """
+    if not body_text:
+        return None
+    months = "|".join(BS_MONTHS.keys())
+    match = re.search(rf"(?:{months})\s+[०-९\d]+,?\s+[०-९\d]{{4}}", body_text[:400])
+    return match.group(0) if match else None
+
+
 # =============================================================================
 # VERDICT EXTRACTION
 # =============================================================================
@@ -185,13 +209,22 @@ def strip_shares_prefix(text: str) -> str:
     return text
 
 
-def is_factcheck_article(title: str, body_text: str) -> bool:
+def is_factcheck_article(title: str, body_text: str, url: str = "") -> bool:
     """
     Check if article is a fact-check article.
     Filters out regular news articles that slip through listing page.
+
+    Keep if ANY of:
+      - "फ्याक्टचेक" / "तथ्य जाँच" / "fact check" in title or URL
+      - a summary box ("दाबी" heading + "तथ्य" or "निष्कर्ष" heading)
+      - a verdict word early in the article (reports without a box)
     """
-    combined = (title + " " + body_text[:500]).lower()
-    return any(ind.lower() in combined for ind in FACTCHECK_INDICATORS)
+    if re.search(r"फ्याक्ट\s*चेक|तथ्य\s*जाँच|fact[\s\-]*check", f"{title} {url}", re.I):
+        return True
+    if (re.search(r"\n\s*दा[बव]ी\s*\n", body_text)
+            and re.search(r"\n\s*(तथ्य|निष्कर्ष)\s*\n", body_text)):
+        return True
+    return bool(re.search(r"भ्रामक|मिथ्या|झुटो|भ्रम फैला", strip_sidebar(body_text)[:1500]))
 
 
 def extract_verdict_from_image(img_url: str) -> Optional[str]:
@@ -216,18 +249,19 @@ def extract_verdict_from_body(body_text: str) -> Optional[str]:
     # Strip sidebar content first
     clean_text = strip_sidebar(body_text)
 
-    # Search conclusion section first
-    conclusion_idx = clean_text.find("निष्कर्ष")
-    if conclusion_idx != -1:
-        search_text = clean_text[conclusion_idx:]
-    else:
-        search_text = clean_text
+    # Only the LAST "निष्कर्ष" heading (the conclusion box, not the narrative)
+    headings = list(re.finditer(r"\n\s*निष्कर्ष\s*\n", clean_text))
+    if not headings:
+        return None
+    search_text = clean_text[headings[-1].end():]
 
-    for keyword, verdict in VERDICT_KEYWORDS.items():
-        if keyword in search_text:
-            return verdict
-
-    return None
+    # Whole words only ("भ्रम" must not match "भ्रमण"); answer only if exactly
+    # one verdict is named, otherwise leave it for a person to decide
+    found = {
+        verdict for keyword, verdict in VERDICT_KEYWORDS.items()
+        if re.search(rf"(?<![\u0900-\u097F]){re.escape(keyword)}(?![\u0900-\u097F])", search_text)
+    }
+    return found.pop() if len(found) == 1 else None
 
 
 # =============================================================================
@@ -349,6 +383,10 @@ class TechpanaScraper(BaseScraper):
                 self.logger.warning(f"No body text: {url}")
                 return None
 
+            if not is_factcheck_article(title, body_text, url):
+                self.logger.info(f"Skipping — not a fact-check: {url}")
+                return None
+
             # --- Author ---
             author = ""  # JS-rendered, skipped for now
 
@@ -356,14 +394,12 @@ class TechpanaScraper(BaseScraper):
             date_published = ""
             published_date_iso = ""
 
-            page_text = soup.get_text()
-            for month in BS_MONTHS.keys():
-                pattern = rf"{month}\s+[०-९\d]+,?\s+[०-९\d]{{4}}"
-                match = re.search(pattern, page_text)
-                if match:
-                    date_published = match.group(0)
-                    published_date_iso = parse_bs_date(date_published) or ""
-                    break
+            # The article's own date line (the old whole-page search in
+            # calendar order often returned a sidebar date)
+            own_date = extract_own_date(body_text)
+            if own_date:
+                date_published = own_date
+                published_date_iso = parse_bs_date(own_date) or ""
 
             if not date_published:
                 year_match = re.search(r"/(\d{4})/", url)
@@ -382,18 +418,10 @@ class TechpanaScraper(BaseScraper):
                     og_image.get("content", "")
                 ) or ""
 
-            # Strategy 2: search ALL img tags for verdict keyword
-            # FIXED: was only checking first img tag
-            if not raw_verdict:
-                for img in soup.find_all("img", src=True):
-                    src = img.get("src", "")
-                    result = extract_verdict_from_image(src)
-                    if result:
-                        raw_verdict = result
-                        break
+            # (Removed Oct 2026: search over ALL <img> tags, which returned
+            #  badges of sidebar articles.)
 
-            # Strategy 3: body text conclusion section
-            # FIXED: now includes झुटो, साँचो, गलत keywords
+            # Strategy 2: the conclusion box ("निष्कर्ष") text
             if not raw_verdict:
                 raw_verdict = extract_verdict_from_body(body_text) or ""
 

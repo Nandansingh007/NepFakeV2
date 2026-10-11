@@ -27,7 +27,8 @@ from config.settings import is_devanagari, RAW_DIRS, SCHEMA_VERSION
 from schema.schema import NepFakeV2Example, make_example_id
 from schema.validator import validate_batch
 from pipeline.label_mapper import map_verdict
-from scrapers.techpana import BS_MONTHS, parse_bs_date
+from scrapers.techpana import BS_MONTHS, parse_bs_date, extract_own_date, is_factcheck_article
+from scrapers.nepalfactcheck import extract_verdict_from_header
 
 logger = logging.getLogger("nepfakev2.normalizer")
 
@@ -176,6 +177,25 @@ def normalize_article(
     body_text = raw.get("body_text", "").strip()
     raw_verdict = raw.get("raw_verdict_text", "").strip()
     raw_date = raw.get("date_published", "")
+
+    # --- Oct 2026 repairs, re-derived from saved text (raw files unchanged) ---
+    is_explainer = False
+    if source_name == "nepalfactcheck":
+        # Verdict from the article's own header tag. The old scraper read
+        # sidebar badges: 39 of 677 verdicts wrong.
+        raw_verdict = extract_verdict_from_header(body_text) or raw_verdict
+        # Explainers (header tag "एक्सप्लेनर") explain a topic; they do not
+        # check a claim, so they get no verdict label.
+        head = body_text.split("\n")[2] if body_text.count("\n") >= 2 else ""
+        is_explainer = "एक्सप्लेनर" in head
+    elif source_name == "techpana":
+        # Not a fact-check (old scraper never applied its filter)
+        if not is_factcheck_article(title, body_text, source_url):
+            logger.info(f"Skipping — not a fact-check: {source_url}")
+            return None
+        # Date from the article's own date line. The old scraper often took
+        # a sidebar date: 145 of 275 dates were wrong.
+        raw_date = extract_own_date(body_text) or raw_date
     annotator_notes = raw.get("annotator_notes", "")
 
     # --- Skip if no title or body ---
@@ -186,8 +206,11 @@ def normalize_article(
     # --- Map verdict to label ---
     # -1 (UNKNOWN) is preserved as-is — not coerced to any other label
     verdict_label, verdict_label_text = map_verdict(raw_verdict)
+    if is_explainer:
+        verdict_label, verdict_label_text = -1, "UNKNOWN"
+        annotator_notes = (annotator_notes + " | " if annotator_notes else "") + "explainer_not_factcheck"
 
-    if verdict_label == -1:
+    if verdict_label == -1 and not is_explainer:
         logger.warning(f"Unmappable verdict '{raw_verdict}': {source_url}")
         if annotator_notes:
             annotator_notes += " | verdict_unmappable"
