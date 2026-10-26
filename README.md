@@ -151,9 +151,9 @@ flowchart LR
 | 🗃 Raw articles scraped | **959** |
 | ✅ Normalized examples | **937** |
 | 📅 Date range | 2020-03-13 → 2026-10-14 |
-| 🕒 Last updated | 2026-10-19 04:33 UTC |
+| 🕒 Last updated | 2026-10-26 04:39 UTC |
 
-**Last run:** 2026-10-19 &nbsp;|&nbsp; ✓ TechPana: +0 new &nbsp;|&nbsp; ✓ NepalFactCheck: +2 new
+**Last run:** 2026-10-26 &nbsp;|&nbsp; ✓ TechPana: +0 new &nbsp;|&nbsp; ✓ NepalFactCheck: +0 new
 
 
 ### Label Distribution (normalized)
