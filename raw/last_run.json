@@ -1,17 +1,17 @@
 {
-  "last_run_date": "2026-10-26",
-  "run_id": "run_20261026_043924",
+  "last_run_date": "2026-11-02",
+  "run_id": "run_20261102_055530",
   "sources": {
     "techpana": {
       "status": "success",
-      "articles_scraped": 0,
-      "last_run_date": "2026-10-26",
-      "last_published_date": "2026-10-09"
+      "articles_scraped": 1,
+      "last_run_date": "2026-11-02",
+      "last_published_date": "2026-10-30"
     },
     "nepalfactcheck": {
       "status": "success",
       "articles_scraped": 0,
-      "last_run_date": "2026-10-26",
+      "last_run_date": "2026-11-02",
       "last_published_date": "2026-10-14"
     }
   }
