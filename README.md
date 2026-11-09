@@ -148,12 +148,12 @@ flowchart LR
 
 | | |
 |---|---|
-| 🗃 Raw articles scraped | **960** |
+| 🗃 Raw articles scraped | **961** |
 | ✅ Normalized examples | **938** |
 | 📅 Date range | 2020-03-13 → 2026-10-30 |
-| 🕒 Last updated | 2026-11-02 05:56 UTC |
+| 🕒 Last updated | 2026-11-09 06:14 UTC |
 
-**Last run:** 2026-11-02 &nbsp;|&nbsp; ✓ TechPana: +1 new &nbsp;|&nbsp; ✓ NepalFactCheck: +0 new
+**Last run:** 2026-11-09 &nbsp;|&nbsp; ✓ TechPana: +0 new &nbsp;|&nbsp; ✓ NepalFactCheck: +1 new
 
 
 ### Label Distribution (normalized)
@@ -170,7 +170,7 @@ flowchart LR
 | Source | Articles | Verdict profile |
 |--------|----------:|-----------------|
 | TechPana         |  277 | भ्रामक: 57%  मिथ्या: 40%  अपुष्ट: 2%  सही: 1%  unmapped: 0%  ⚠ 1 unmapped |
-| NepalFactCheck   |  683 | भ्रामक: 54%  मिथ्या: 35%  सही: 9%  अपुष्ट: 3% |
+| NepalFactCheck   |  684 | भ्रामक: 54%  मिथ्या: 35%  सही: 9%  अपुष्ट: 3% |
 
 Nepali script coverage: **99.8%**
 <!-- STATS_END -->
