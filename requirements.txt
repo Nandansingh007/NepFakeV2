@@ -18,6 +18,7 @@ pandas==3.0.5
 # Testing
 pytest==9.1.1
 pytest-cov==7.1.0
+pytest-socket==0.8.1   # blocks network access inside tests
 
 # Nepali Date Converter
 nepali-datetime==1.0.8.5

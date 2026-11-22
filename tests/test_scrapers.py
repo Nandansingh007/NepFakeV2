@@ -1,95 +1,77 @@
 """
-Test: scraper imports and initialization
-Verifies all scrapers can be imported and initialized correctly.
+Test: scraper imports, initialization and pure helper functions.
+Nothing here fetches a page (network is blocked in pytest.ini).
 """
-import sys
-sys.path.insert(0, '.')
+import pytest
 
-errors = []
 
-# --- Test imports ---
-try:
-    from scrapers.base import BaseScraper
+def test_scrapers_import():
+    from scrapers.base import BaseScraper  # noqa: F401
+    from scrapers.techpana import TechpanaScraper  # noqa: F401
+    from scrapers.nepalfactcheck import NepalfactcheckScraper  # noqa: F401
+
+
+# TechpanaScraper.__init__ tries to open a FlareSolverr session on
+# localhost:8191. In tests that call is blocked by pytest-socket and the
+# scraper swallows the error, so construction still succeeds.
+@pytest.mark.filterwarnings("ignore:A test tried to use socket")
+def test_techpana_init():
     from scrapers.techpana import TechpanaScraper
-    from scrapers.nepalfactcheck import NepalfactcheckScraper
-except ImportError as e:
-    errors.append(f"Import error: {e}")
-
-# --- Test initialization ---
-try:
     s = TechpanaScraper()
     assert s.source_name == "techpana"
     assert s.config is not None
     assert s.raw_dir is not None
-except Exception as e:
-    errors.append(f"TechpanaScraper init error: {e}")
 
-try:
+
+def test_nepalfactcheck_init():
+    from scrapers.nepalfactcheck import NepalfactcheckScraper
     s = NepalfactcheckScraper()
     assert s.source_name == "nepalfactcheck"
     assert s.config is not None
-except Exception as e:
-    errors.append(f"NepalfactcheckScraper init error: {e}")
 
-# --- Test helper functions ---
-try:
-    from scrapers.techpana import parse_bs_date, BS_MONTHS
 
-    result = parse_bs_date("भदौ ९, २०८३")
-    assert result == "2026-08-25", f"Expected 2026-08-25, got {result}"
+@pytest.mark.parametrize(
+    "raw, expected",
+    [("भदौ ९, २०८३", "2026-08-25"), ("साउन २८, २०८३", "2026-08-13"), ("", None)],
+)
+def test_parse_bs_date(raw, expected):
+    from scrapers.techpana import parse_bs_date
+    assert parse_bs_date(raw) == expected
 
-    result = parse_bs_date("साउन २८, २०८३")
-    assert result == "2026-08-13", f"Expected 2026-08-13, got {result}"
 
-    result = parse_bs_date("")
-    assert result is None
+@pytest.mark.parametrize(
+    "filename, expected",
+    [
+        ("false_image.jpg", "मिथ्या"),
+        ("misleading_photo.jpg", "भ्रामक"),
+        ("verified_true.jpg", "सही"),
+        ("", None),
+    ],
+)
+def test_extract_verdict_from_image(filename, expected):
+    from scrapers.techpana import extract_verdict_from_image
+    assert extract_verdict_from_image(filename) == expected
 
-except Exception as e:
-    errors.append(f"BS date conversion error: {e}")
 
-# --- Test verdict extraction ---
-try:
-    from scrapers.techpana import extract_verdict_from_image, extract_verdict_from_body
-
-    assert extract_verdict_from_image("false_image.jpg") == "मिथ्या"
-    assert extract_verdict_from_image("misleading_photo.jpg") == "भ्रामक"
-    assert extract_verdict_from_image("verified_true.jpg") == "सही"
-    assert extract_verdict_from_image("") is None
-
-except Exception as e:
-    errors.append(f"Verdict extraction error: {e}")
-
-# --- Test utils ---
-# Note: is_devanagari() lives in config.settings — not utils.helpers
-try:
-    from utils.helpers import normalize_url, url_hash, title_hash
-    from config.settings import is_devanagari
-
-    # normalize_url
+def test_normalize_url_strips_query():
+    from utils.helpers import normalize_url
     assert normalize_url("https://techpana.com/2026/158464/slug?tab=nepali") == \
-           "https://techpana.com/2026/158464/slug"
+        "https://techpana.com/2026/158464/slug"
 
-    # url_hash stability across query params
-    h1 = url_hash("https://techpana.com/2026/158464/slug?tab=nepali")
-    h2 = url_hash("https://techpana.com/2026/158464/slug")
-    assert h1 == h2, "url_hash not stable across query params"
 
-    # title_hash stability across whitespace
-    h1 = title_hash("भाइरल भिडिओ भ्रामक")
-    h2 = title_hash("भाइरल भिडिओ भ्रामक  ")
-    assert h1 == h2, "title_hash not stable across whitespace"
+def test_url_hash_stable_across_query_params():
+    from utils.helpers import url_hash
+    assert url_hash("https://techpana.com/2026/158464/slug?tab=nepali") == \
+        url_hash("https://techpana.com/2026/158464/slug")
 
-    # is_devanagari
-    assert is_devanagari("भाइरल") == True
-    assert is_devanagari("hello") == False
 
-except Exception as e:
-    errors.append(f"Utils error: {e}")
+def test_title_hash_stable_across_whitespace():
+    from utils.helpers import title_hash
+    assert title_hash("भाइरल भिडिओ भ्रामक") == title_hash("भाइरल भिडिओ भ्रामक  ")
 
-if errors:
-    print("FAIL — scraper errors:")
-    for e in errors:
-        print(f"  FAIL: {e}")
-    sys.exit(1)
-else:
-    print("PASS — scrapers: all imports, initialization and helpers working")
+
+def test_is_devanagari():
+    # is_devanagari() lives in config.settings, not utils.helpers
+    from config.settings import is_devanagari
+    assert is_devanagari("भाइरल") is True
+    assert is_devanagari("hello") is False

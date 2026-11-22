@@ -1,75 +1,56 @@
 """
 Test: pipeline/normalizer.py
-Verifies date conversion and normalization logic.
+Date conversion, plus basic shape checks on normalize_all() over raw/.
+
+NOTE (Phase 0): ported 1:1. The extract_verdict_* / explainer functions are
+still untested; that is Phase 1 work.
 """
-import sys
-sys.path.insert(0, '.')
+import pytest
 
-from pipeline.normalizer import normalize_date, normalize_article, normalize_all
+from pipeline.normalizer import normalize_date
 
-errors = []
 
-# --- Test normalize_date ---
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("2026-07-14T14:47:19+05:45", "2026-07-14"),  # ISO full datetime
+        ("2026-08-25T10:08:00+00:00", "2026-08-25"),
+        ("2026-07-14", "2026-07-14"),                 # ISO date only
+        ("2026-08", "2026-08-01"),                    # year-month only
+        ("2026", "2026-01-01"),                       # year only
+        ("भदौ ९, २०८३", "2026-08-25"),                # BS date strings
+        ("साउन २८, २०८३", "2026-08-13"),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_normalize_date(raw, expected):
+    assert normalize_date(raw) == expected
 
-def check_date(raw, expected):
-    result = normalize_date(raw)
-    if result != expected:
-        errors.append(f"normalize_date('{raw}') = '{result}', expected '{expected}'")
 
-# ISO full datetime
-check_date("2026-07-14T14:47:19+05:45", "2026-07-14")
-check_date("2026-08-25T10:08:00+00:00", "2026-08-25")
+@pytest.mark.data
+def test_normalize_all_count(normalized):
+    assert len(normalized) >= 900, f"normalize_all() returned {len(normalized)}"
 
-# ISO date only
-check_date("2026-07-14", "2026-07-14")
 
-# Year-month only
-check_date("2026-08", "2026-08-01")
+@pytest.mark.data
+def test_normalize_all_required_fields(normalized):
+    # The old script only looked at the first 10 rows; this checks all of them.
+    problems = []
+    for e in normalized:
+        if not e.example_id or not e.example_id.startswith("NF2_"):
+            problems.append(f"bad example_id {e.example_id!r}: {e.source_url}")
+        if not e.claim_text:
+            problems.append(f"missing claim_text: {e.source_url}")
+        if e.verdict_label not in (-1, 0, 1, 2):
+            problems.append(f"invalid verdict_label {e.verdict_label}: {e.source_url}")
+        if not e.source_name:
+            problems.append(f"missing source_name: {e.source_url}")
+    assert not problems, "\n".join(problems[:20])
 
-# Year only
-check_date("2026", "2026-01-01")
 
-# BS date strings
-check_date("भदौ ९, २०८३", "2026-08-25")
-check_date("साउन २८, २०८३", "2026-08-13")
-
-# Empty / None
-check_date("", "")
-check_date(None, "")
-
-# --- Test normalize_all ---
-# normalize_all() now runs validation internally and returns only valid records
-examples = normalize_all()
-
-if len(examples) < 900:
-    errors.append(f"normalize_all() returned {len(examples)} — expected 900+")
-
-# Check required fields on sample
-for e in examples[:10]:
-    if not e.example_id:
-        errors.append(f"Missing example_id: {e.source_url}")
-    if not e.claim_text:
-        errors.append(f"Missing claim_text: {e.source_url}")
-    if e.verdict_label not in [-1, 0, 1, 2]:
-        errors.append(f"Invalid verdict_label {e.verdict_label}: {e.source_url}")
-    if not e.source_name:
-        errors.append(f"Missing source_name: {e.source_url}")
-    if not e.example_id.startswith("NF2_"):
-        errors.append(f"example_id wrong format: {e.example_id}")
-
-# Check -1 records are NOT in output — validator drops them as invalid
-# (verdict_label -1 fails the label consistency check in validate_example)
-unknown_in_output = [e for e in examples if e.verdict_label == -1]
-if unknown_in_output:
-    errors.append(
-        f"{len(unknown_in_output)} UNKNOWN (-1) records in normalize_all() output "
-        f"— should have been dropped by validate_batch()"
-    )
-
-if errors:
-    print("FAIL — normalizer errors:")
-    for e in errors:
-        print(f"  {e}")
-    sys.exit(1)
-else:
-    print(f"PASS — normalizer: {len(examples)} examples normalized and validated")
+@pytest.mark.data
+def test_normalize_all_drops_unknown(normalized):
+    # validate_batch() inside normalize_all() must drop UNKNOWN (-1) rows
+    unknown = [e.source_url for e in normalized if e.verdict_label == -1]
+    assert not unknown, f"{len(unknown)} UNKNOWN rows in output: {unknown[:5]}"

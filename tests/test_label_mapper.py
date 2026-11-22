@@ -1,54 +1,49 @@
 """
 Test: pipeline/label_mapper.py
-Verifies all verdict strings map to correct labels.
+Verifies verdict strings map to the expected labels.
+
+NOTE (Phase 0): these cases are copied 1:1 from the old script. They are
+happy-path only. In particular "भ्रम" -> 1 and "गलत" -> 1 encode the current
+FALSE/MISLEADING merge; revisit them when the label scheme changes (Phase 1).
 """
-import sys
-sys.path.insert(0, '.')
+import pytest
 
 from pipeline.label_mapper import map_verdict, is_mappable
 
-errors = []
 
-def check(verdict, expected_label):
+@pytest.mark.parametrize(
+    "verdict, expected_label",
+    [
+        # Label 1 — FALSE/MISLEADING
+        ("मिथ्या", 1),
+        ("मिथ्या सूचना", 1),
+        ("भ्रामक", 1),
+        ("भ्रामक सूचना", 1),
+        ("झुटो", 1),
+        ("गलत", 1),
+        ("असत्य", 1),
+        ("भ्रम", 1),
+        # Label 0 — REAL
+        ("सही", 0),
+        ("सही सूचना", 0),
+        ("साँचो", 0),
+        ("सत्य", 0),
+        # Label 2 — UNVERIFIED
+        ("अपुष्ट", 2),
+        ("अपुष्ट सूचना", 2),
+        # Label -1 — UNKNOWN
+        ("", -1),
+        ("   ", -1),
+    ],
+)
+def test_map_verdict(verdict, expected_label):
     label, name = map_verdict(verdict)
-    if label != expected_label:
-        errors.append(
-            f"map_verdict('{verdict}') = {label} ({name}), expected {expected_label}"
-        )
+    assert label == expected_label, f"map_verdict({verdict!r}) = {label} ({name})"
 
-# Label 1 — FALSE/MISLEADING
-check("मिथ्या",         1)
-check("मिथ्या सूचना",   1)
-check("भ्रामक",         1)
-check("भ्रामक सूचना",   1)
-check("झुटो",           1)
-check("गलत",            1)
-check("असत्य",          1)
-check("भ्रम",           1)
 
-# Label 0 — REAL
-check("सही",            0)
-check("सही सूचना",      0)
-check("साँचो",          0)
-check("सत्य",           0)
-
-# Label 2 — UNVERIFIED
-check("अपुष्ट",         2)
-check("अपुष्ट सूचना",   2)
-
-# Label -1 — UNKNOWN
-check("",               -1)
-check("   ",            -1)
-
-# is_mappable
-assert is_mappable("भ्रामक") == True
-assert is_mappable("") == False
-assert is_mappable("unknown garbage") == False
-
-if errors:
-    print("FAIL — label_mapper errors:")
-    for e in errors:
-        print(f"  {e}")
-    sys.exit(1)
-else:
-    print("PASS — label_mapper: all verdicts mapped correctly")
+@pytest.mark.parametrize(
+    "verdict, expected",
+    [("भ्रामक", True), ("", False), ("unknown garbage", False)],
+)
+def test_is_mappable(verdict, expected):
+    assert is_mappable(verdict) is expected

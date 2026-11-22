@@ -1,143 +1,101 @@
 """
-Test: raw data quality
-Verifies raw JSON files are complete and valid.
-"""
-import sys
-import json
-from pathlib import Path
-sys.path.insert(0, '.')
+Test: committed raw/ JSON files are complete and valid.
 
-errors = []
-warnings = []
+This is a data check, not a code check: it tests whatever is in raw/
+right now. In the weekly scrape job it runs on the freshly scraped files,
+which is exactly when we want it.
+"""
+import json
+import warnings
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.data
 
 RAW_DIRS = {
     "techpana": "raw/techpana",
     "nepalfactcheck": "raw/nepalfactcheck",
 }
-
 REQUIRED_FIELDS = [
     "source_name", "source_url", "title", "body_text",
     "raw_verdict_text", "date_published", "date_scraped",
 ]
 
-total_articles = 0
 
-for source_name, raw_dir in RAW_DIRS.items():
+def _load(raw_dir):
     p = Path(raw_dir)
-    if not p.exists():
-        errors.append(f"Raw directory missing: {raw_dir}")
-        continue
+    assert p.exists(), f"raw directory missing: {raw_dir}"
+    files = sorted(p.glob("*.json"))
+    assert files, f"no JSON files in {raw_dir}"
+    articles = []
+    for f in files:
+        with open(f, encoding="utf-8") as fp:
+            articles.extend(json.load(fp))  # JSONDecodeError fails the test
+    assert articles, f"no articles loaded from {raw_dir}"
+    return articles
 
-    json_files = [f for f in sorted(p.glob("*.json")) if f.name != ".gitkeep"]
-    if not json_files:
-        errors.append(f"No JSON files in: {raw_dir}")
-        continue
 
-    source_articles = []
-    for f in json_files:
-        try:
-            with open(f, "r", encoding="utf-8") as fp:
-                articles = json.load(fp)
-                source_articles.extend(articles)
-        except json.JSONDecodeError as e:
-            errors.append(f"Invalid JSON: {f} — {e}")
+@pytest.fixture(scope="module", params=list(RAW_DIRS), ids=list(RAW_DIRS))
+def source(request):
+    name = request.param
+    return name, _load(RAW_DIRS[name])
 
-    if not source_articles:
-        errors.append(f"No articles loaded from: {raw_dir}")
-        continue
 
-    total_articles += len(source_articles)
+def test_required_fields(source):
+    # The old script only checked the first 20 articles; this checks all.
+    name, articles = source
+    missing = [
+        (i, f) for i, a in enumerate(articles) for f in REQUIRED_FIELDS if f not in a
+    ]
+    assert not missing, f"{name}: missing fields {missing[:10]}"
 
-    # Check required fields
-    for i, article in enumerate(source_articles[:20]):
-        for field in REQUIRED_FIELDS:
-            if field not in article:
-                errors.append(f"{source_name}[{i}] missing field: {field}")
 
-    # Check no empty bodies
-    empty_bodies = sum(1 for a in source_articles if not a.get('body_text'))
-    if empty_bodies > 0:
-        errors.append(f"{source_name}: {empty_bodies} empty body texts")
+def test_no_empty_bodies_or_titles(source):
+    name, articles = source
+    assert sum(1 for a in articles if not a.get("body_text")) == 0, f"{name}: empty body_text"
+    assert sum(1 for a in articles if not a.get("title")) == 0, f"{name}: empty title"
 
-    # Check no empty titles
-    empty_titles = sum(1 for a in source_articles if not a.get('title'))
-    if empty_titles > 0:
-        errors.append(f"{source_name}: {empty_titles} empty titles")
 
-    # Check source_name field matches directory
-    wrong_source = sum(
-        1 for a in source_articles
-        if a.get('source_name') != source_name
-    )
-    if wrong_source > 0:
-        warnings.append(
-            f"{source_name}: {wrong_source} articles with wrong source_name"
-        )
+def test_source_name_matches_dir(source):
+    name, articles = source
+    wrong = sum(1 for a in articles if a.get("source_name") != name)
+    if wrong:
+        warnings.warn(f"{name}: {wrong} articles with wrong source_name")
 
-    # Check URL deduplication — no duplicate URLs
-    urls = [a['source_url'] for a in source_articles]
-    unique_urls = set(urls)
-    if len(urls) != len(unique_urls):
-        errors.append(
-            f"{source_name}: {len(urls) - len(unique_urls)} duplicate URLs"
-        )
 
-    # Check verdict distribution
-    verdicts = {}
-    for a in source_articles:
-        v = a.get('raw_verdict_text', '').strip() or 'EMPTY'
-        verdicts[v] = verdicts.get(v, 0) + 1
+def test_no_duplicate_urls(source):
+    name, articles = source
+    urls = [a["source_url"] for a in articles]
+    assert len(urls) == len(set(urls)), f"{name}: {len(urls) - len(set(urls))} duplicate URLs"
 
-    empty_count = verdicts.get('EMPTY', 0)
-    empty_pct = empty_count / len(source_articles) * 100
-    if empty_pct > 10:
-        errors.append(
-            f"{source_name}: {empty_pct:.1f}% empty verdicts — check scraper"
-        )
-    elif empty_count > 0:
-        warnings.append(
-            f"{source_name}: {empty_count} empty verdicts ({empty_pct:.1f}%) "
-            f"— known edge cases, flagged with annotator_notes"
-        )
 
-# Check last_run.json
-last_run_path = Path("raw/last_run.json")
-if not last_run_path.exists():
-    errors.append("raw/last_run.json missing")
-else:
-    with open(last_run_path, "r", encoding="utf-8") as f:
-        last_run = json.load(f)
+def test_empty_verdict_rate(source):
+    name, articles = source
+    empty = sum(1 for a in articles if not a.get("raw_verdict_text", "").strip())
+    pct = empty / len(articles) * 100
+    assert pct <= 10, f"{name}: {pct:.1f}% empty verdicts — check scraper"
+    if empty:
+        warnings.warn(f"{name}: {empty} empty verdicts ({pct:.1f}%) — known edge cases")
 
-    for source, data in last_run.get('sources', {}).items():
-        if data.get('status') == 'failed':
-            errors.append(f"last_run.json: {source} last run failed")
-        if not data.get('last_published_date'):
-            warnings.append(f"last_run.json: {source} has no last_published_date")
 
-# Check stats_raw.json
-stats_path = Path("raw/stats_raw.json")
-if not stats_path.exists():
-    errors.append("raw/stats_raw.json missing")
-else:
-    with open(stats_path, "r", encoding="utf-8") as f:
-        stats = json.load(f)
+def test_last_run_succeeded():
+    # In the weekly job this means: if either scraper failed this week,
+    # nothing gets committed or pushed to Hugging Face.
+    path = Path("raw/last_run.json")
+    assert path.exists(), "raw/last_run.json missing"
+    last_run = json.loads(path.read_text(encoding="utf-8"))
+    failed = [s for s, d in last_run.get("sources", {}).items() if d.get("status") == "failed"]
+    assert not failed, f"last run failed for: {failed}"
+    for s, d in last_run.get("sources", {}).items():
+        if not d.get("last_published_date"):
+            warnings.warn(f"last_run.json: {s} has no last_published_date")
 
-    if stats.get('total_raw_articles', 0) != total_articles:
-        warnings.append(
-            f"stats_raw.json total ({stats.get('total_raw_articles')}) "
-            f"!= actual ({total_articles})"
-        )
 
-if errors:
-    print("FAIL — raw data errors:")
-    for e in errors:
-        print(f"  FAIL: {e}")
-    if warnings:
-        for w in warnings:
-            print(f"  WARN: {w}")
-    sys.exit(1)
-else:
-    if warnings:
-        for w in warnings:
-            print(f"  WARN: {w}")
-    print(f"PASS — raw data: {total_articles} articles, all fields valid")
+def test_stats_raw_total_matches():
+    path = Path("raw/stats_raw.json")
+    assert path.exists(), "raw/stats_raw.json missing"
+    stats = json.loads(path.read_text(encoding="utf-8"))
+    total = sum(len(_load(d)) for d in RAW_DIRS.values())
+    if stats.get("total_raw_articles", 0) != total:
+        warnings.warn(f"stats_raw.json total ({stats.get('total_raw_articles')}) != actual ({total})")

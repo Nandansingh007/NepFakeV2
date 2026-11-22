@@ -1,90 +1,58 @@
 """
-Test: full pipeline end to end
-Verifies normalize → deduplicate → export produces correct output.
+Test: normalize -> deduplicate -> compute_stats end to end (in memory;
+nothing is written to data/).
 """
-import sys
-import json
-sys.path.insert(0, '.')
+import pytest
 
-errors = []
+from pipeline.exporter import compute_stats
 
-from pipeline.normalizer import normalize_all
-from pipeline.deduplicator import deduplicate, get_dedup_stats
-from pipeline.exporter import export, compute_stats
+pytestmark = pytest.mark.data
 
-# Run pipeline
-examples = normalize_all()
-deduped = deduplicate(examples)
-stats = compute_stats(deduped)
 
-# Check total
-if len(deduped) < 900:
-    errors.append(f"Pipeline produced {len(deduped)} examples — expected 900+")
+@pytest.fixture(scope="module")
+def stats(deduped):
+    return compute_stats(deduped)
 
-# Check stats structure
-required_keys = [
-    'total_examples', 'total_including_unknown', 'label_distribution',
-    'source_distribution', 'topic_distribution', 'date_range',
-    'language', 'quality'
-]
-for key in required_keys:
-    if key not in stats:
-        errors.append(f"compute_stats() missing key: {key}")
 
-# total_examples (exported) <= total_including_unknown (full)
-if stats.get('total_examples', 0) > stats.get('total_including_unknown', 0):
-    errors.append(
-        f"total_examples ({stats.get('total_examples')}) > "
-        f"total_including_unknown ({stats.get('total_including_unknown')}) — impossible"
-    )
+def test_pipeline_count(deduped):
+    assert len(deduped) >= 900
 
-# Check label distribution totals against total_including_unknown
-if 'label_distribution' in stats:
-    label_total = sum(
-        v['count'] for v in stats['label_distribution'].values()
-    )
-    if label_total != stats.get('total_including_unknown', label_total):
-        errors.append(
-            f"Label distribution total ({label_total}) != "
-            f"total_including_unknown ({stats.get('total_including_unknown')})"
-        )
 
-# Check source distribution
-if 'source_distribution' in stats:
-    source_total = sum(
-        v['count'] for v in stats['source_distribution'].values()
-    )
-    if source_total != len(deduped):
-        errors.append(
-            f"Source distribution total ({source_total}) != examples ({len(deduped)})"
-        )
+def test_stats_keys(stats):
+    required = [
+        'total_examples', 'total_including_unknown', 'label_distribution',
+        'source_distribution', 'topic_distribution', 'date_range',
+        'language', 'quality',
+    ]
+    missing = [k for k in required if k not in stats]
+    assert not missing, missing
 
-# Check date range makes sense
-if 'date_range' in stats:
+
+def test_total_examples_not_above_total_including_unknown(stats):
+    # Weak check, kept from the old script: today both numbers are always
+    # equal because unknowns are dropped before compute_stats() sees them.
+    assert stats['total_examples'] <= stats['total_including_unknown']
+
+
+def test_label_distribution_sums_to_total(stats):
+    label_total = sum(v['count'] for v in stats['label_distribution'].values())
+    assert label_total == stats['total_including_unknown']
+
+
+def test_source_distribution_sums_to_examples(stats, deduped):
+    source_total = sum(v['count'] for v in stats['source_distribution'].values())
+    assert source_total == len(deduped)
+
+
+def test_date_range_sane(stats):
     oldest = stats['date_range'].get('oldest', '')
     newest = stats['date_range'].get('newest', '')
-    if oldest and newest:
-        if oldest > newest:
-            errors.append(f"Date range invalid: oldest {oldest} > newest {newest}")
-        if oldest < '2020-01-01':
-            errors.append(f"Oldest date {oldest} is before 2020")
-        if newest > '2030-01-01':
-            errors.append(f"Newest date {newest} is after 2030")
+    assert oldest and newest
+    assert oldest <= newest
+    assert oldest >= '2020-01-01'
+    assert newest <= '2030-01-01'
 
-# Check language stats
-if 'language' in stats:
-    nepali_pct = stats['language'].get('nepali_pct', '0%')
-    pct_val = float(nepali_pct.replace('%', ''))
-    if pct_val < 90:
-        errors.append(f"Only {nepali_pct} Nepali script — expected 90%+")
 
-if errors:
-    print("FAIL — pipeline errors:")
-    for e in errors:
-        print(f"  FAIL: {e}")
-    sys.exit(1)
-else:
-    print(
-        f"PASS — pipeline: {len(deduped)} examples, "
-        f"labels: {stats['label_distribution']}"
-    )
+def test_mostly_nepali(stats):
+    pct = float(stats['language'].get('nepali_pct', '0%').replace('%', ''))
+    assert pct >= 90, f"only {pct}% Nepali script"

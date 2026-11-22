@@ -1,100 +1,109 @@
 """
-Test: security checks
-Verifies no secrets are hardcoded in code files.
+Test: no secrets in the repo or its git history.
+
+Why this was rewritten (Phase 0):
+The old script searched git history for literal strings such as
+'tskey-auth'. Those strings only ever existed inside this test file, so
+`git log -S` always found the commit that added the test, and the check
+failed on every run. It also called sys.exit() at import time, which
+crashed pytest collection.
+
+The new version looks for the *shape* of real tokens with regular
+expressions. A regex like  hf_[A-Za-z0-9]{30,}  does not match its own
+source text (the '[' breaks it), so this file can never flag itself.
 """
-import sys
+import re
 import subprocess
+import warnings
 from pathlib import Path
-sys.path.insert(0, '.')
 
-errors = []
-warnings = []
+import pytest
 
-# --- Check .gitignore ---
-gitignore_path = Path(".gitignore")
-if not gitignore_path.exists():
-    errors.append(".gitignore not found")
-else:
-    content = gitignore_path.read_text()
-    required_ignores = ['.env', 'venv/', 'logs/']
-    for item in required_ignores:
-        if item not in content:
-            warnings.append(f".gitignore missing: {item}")
+# Shapes of the token types this project actually uses or could leak.
+SECRET_PATTERNS = {
+    "huggingface_token": r"hf_[A-Za-z0-9]{30,}",
+    "tailscale_key":     r"tskey-[a-z]+-[A-Za-z0-9]{8,}",
+    "github_token":      r"gh[pousr]_[A-Za-z0-9]{30,}",
+    "github_pat":        r"github_pat_[A-Za-z0-9_]{30,}",
+}
+COMBINED = "(" + "|".join(SECRET_PATTERNS.values()) + ")"
+COMBINED_RE = re.compile(COMBINED)
 
-# --- Check no secrets hardcoded in source files ---
-# Exclude test files themselves from this check
-SECRET_PATTERNS = [
-    'tskey-auth',
-    'REDACTED',
-    'REDACTED',
-]
 
-# Only check source files — not test files
-source_dirs = ['scrapers', 'pipeline', 'config', 'schema', 'utils', '.github']
-py_files = []
-for d in source_dirs:
-    py_files.extend(Path(d).rglob('*.py') if Path(d).exists() else [])
-yml_files = list(Path('.github').rglob('*.yml')) if Path('.github').exists() else []
+def _git(*args) -> str:
+    return subprocess.run(
+        ["git", *args], capture_output=True, text=True, check=True
+    ).stdout
 
-for pattern in SECRET_PATTERNS:
-    for f in py_files + yml_files:
+
+def _in_git_repo() -> bool:
+    try:
+        return _git("rev-parse", "--is-inside-work-tree").strip() == "true"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+needs_git = pytest.mark.skipif(not _in_git_repo(), reason="not a git checkout")
+
+
+@pytest.mark.parametrize(
+    "fake",
+    [
+        # Built at runtime so no token-shaped literal is ever in the source.
+        "hf_" + "A1b2" * 9,
+        "tskey-" + "auth-" + "kAbC123xyz" * 2,
+        "ghp_" + "Z9y8" * 9,
+        "github_pat_" + "x" * 40,
+    ],
+)
+def test_patterns_detect_fake_tokens(fake):
+    """The detector must actually catch real-looking tokens (no vacuous pass)."""
+    assert COMBINED_RE.search(f"token = '{fake}'")
+
+
+def test_patterns_do_not_match_this_file():
+    assert not COMBINED_RE.search(Path(__file__).read_text(encoding="utf-8"))
+
+
+@needs_git
+def test_no_secrets_in_tracked_files():
+    hits = []
+    for name in _git("ls-files").splitlines():
+        p = Path(name)
+        if not p.is_file():
+            continue
         try:
-            content = f.read_text(encoding='utf-8', errors='ignore')
-            if pattern in content:
-                errors.append(f"Secret pattern found in {f}")
-        except Exception:
-            pass
+            text = p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if COMBINED_RE.search(text):
+            hits.append(name)
+    assert not hits, f"token-shaped strings found in: {hits}"
 
-# --- Check no .env file committed ---
-env_path = Path(".env")
-if env_path.exists():
-    result = subprocess.run(
-        ['git', 'ls-files', '.env'],
-        capture_output=True, text=True
-    )
-    if result.stdout.strip():
-        errors.append(".env file is tracked by git")
 
-# --- Check no secrets in git history ---
-secret_searches = [
-    'tskey-auth',
-    'REDACTED',
-    'REDACTED',
-]
+@needs_git
+def test_no_secrets_in_git_history():
+    if _git("rev-parse", "--is-shallow-repository").strip() == "true":
+        pytest.skip("shallow clone: history check needs fetch-depth: 0")
+    commits = _git("log", "--all", f"-G{COMBINED}", "--format=%h %s").strip()
+    assert not commits, f"token-shaped strings were added in:\n{commits}"
 
-for secret in secret_searches:
-    result = subprocess.run(
-        ['git', 'log', '--all', f'-S{secret}', '--oneline'],
-        capture_output=True, text=True
-    )
-    if result.stdout.strip():
-        errors.append(f"Secret '{secret}' found in git history")
 
-# --- Check requirements.txt ---
-req_path = Path("requirements.txt")
-if req_path.exists():
-    content = req_path.read_text()
-    test_packages = ['playwright', 'playwright-stealth', 'curl_cffi']
-    for pkg in test_packages:
-        if pkg in content:
-            warnings.append(f"Unused test package in requirements.txt: {pkg}")
+@needs_git
+def test_env_file_not_tracked():
+    assert not _git("ls-files", ".env").strip(), ".env is tracked by git"
 
-# --- Check .gitignore has raw/ NOT ignored ---
-if gitignore_path.exists():
-    content = gitignore_path.read_text()
-    if 'raw/' in content:
-        errors.append(".gitignore contains raw/ — raw data will not be committed")
 
-if errors:
-    print("FAIL - security errors:")
-    for e in errors:
-        print(f"  FAIL: {e}")
-    if warnings:
-        for w in warnings:
-            print(f"  WARN: {w}")
-    sys.exit(1)
-else:
-    if warnings:
-        for w in warnings:
-            print(f"  WARN: {w}")
-    print("PASS - security: no secrets found in source code or git history")
+def test_gitignore_rules():
+    content = Path(".gitignore").read_text()
+    for item in [".env", "venv/", "logs/"]:
+        assert item in content, f".gitignore missing: {item}"
+    # raw/ must be committed: it is the source of truth for the dataset
+    assert "raw/" not in content, ".gitignore ignores raw/"
+
+
+def test_no_unused_scraping_packages():
+    content = Path("requirements.txt").read_text()
+    unused = [p for p in ["playwright", "playwright-stealth", "curl_cffi"] if p in content]
+    if unused:
+        warnings.warn(f"unused packages in requirements.txt: {unused}")
