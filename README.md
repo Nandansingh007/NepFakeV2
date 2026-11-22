@@ -13,7 +13,7 @@
 
 NepFakeV2 is primarily a **data collection infrastructure for researchers**. It continuously collects fact-checks published by professional Nepali fact-checkers and exposes them in two layers:
 
-- **Raw layer (`raw/`)** — fact-checks preserved exactly as scraped, stored separately by source and collection date (`raw/<source>/YYYY-MM-DD.json`). Nothing is relabelled, merged, or dropped. Use this layer to apply your own cleaning, deduplication, annotation, or modelling approach. Raw `raw_verdict_text` is exactly what the scraper recorded and includes the errors listed in [Data corrections](#data-corrections); use `body_text` as the source of truth.
+- **Raw layer (`raw/`)** — fact-checks preserved exactly as scraped, stored separately by source and collection date (`raw/<source>/YYYY-MM-DD.json`). Nothing is relabelled, merged, or dropped. Use this layer to apply your own cleaning, deduplication, annotation, or modelling approach. Raw `raw_verdict_text` is what the scraper recorded. Files scraped before 2026-11-23 include the errors listed in [Data corrections](#data-corrections); from 2026-11-23 on, the scraper uses the same verdict rule as the normalized layer (see `label_source`). Use `body_text` as the source of truth.
 - **Normalized layer (`data/`)** — a convenient, research-ready representation: verdicts mapped to a shared label set, Bikram Sambat dates converted to ISO, and every record in one consistent schema.
 
 Every record is real, human-verified content that circulated in Nepal — not machine-translated from English-language datasets and not LLM-generated. Publicly available Nepali fake-news datasets typically rely on one of those two shortcuts, which introduce topic-domain and translation-artifact confounds or fail to reflect the misinformation Nepali audiences actually encounter.
@@ -152,7 +152,7 @@ flowchart LR
 | 🗃 Raw articles scraped | **961** |
 | ✅ Normalized examples | **938** |
 | 📅 Date range | 2020-03-13 → 2026-10-30 |
-| 🕒 Last updated | 2026-11-22 04:42 UTC |
+| 🕒 Last updated | 2026-11-22 04:56 UTC |
 
 **Last run:** 2026-11-16 &nbsp;|&nbsp; ✓ TechPana: +0 new &nbsp;|&nbsp; ✓ NepalFactCheck: +0 new
 
@@ -177,6 +177,17 @@ Nepali script coverage: **99.8%**
 <!-- STATS_END -->
 
 ## Data corrections
+
+**2026-11-22 (schema 1.1, commit 50f5c7f).** The TechPana scraper read the image badge before the fact-checker's conclusion, while the normalizer did the reverse, so 54 raw TechPana verdicts disagreed with the dataset (all already corrected in `data/`). Both now use one rule: the conclusion box, then the lead summary, then the stored badge. A new `label_source` column records which one was used.
+
+| Change | Affected | Effect |
+|---|---|---|
+| Verdict read from the lead summary when the conclusion names no single verdict | 16 TechPana rows | 3 labels changed (2025 rows where the old badge contradicted the text): 151229 FALSE_MISLEADING → UNVERIFIED; 150099 and 149828 UNVERIFIED → FALSE_MISLEADING |
+| New column `label_source` | all rows | `nfc_header` 662, `conclusion` 191, `stored` 46, `conclusion_mixed` 23, `summary` 16 |
+| "गलत" (wrong) now counts as misleading, not false | TechPana conclusions | No change to the 3-class label (both are FALSE_MISLEADING) |
+| `stats.json` schema version was hardcoded as 1.0 | stats.json | Now taken from the code (1.1) |
+
+Example IDs and row count (938) are unchanged. `stored` rows (46) still carry the scraper's badge, not a verdict read from the text; treat them as less reliable. 19 NepalFactCheck explainers are excluded in total (17 at the time of the 2026-10-11 audit).
 
 **2026-10-11 (commits 770f96f, 8a37091).** An audit against each article's own text found five scraper errors. The raw layer is unchanged; the normalized layer now rebuilds labels from the saved article text.
 

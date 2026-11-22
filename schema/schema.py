@@ -37,8 +37,10 @@ class RawArticle:
     body_text: str
 
     raw_verdict_text: str
-    # Verdict exactly as found on the page
-    # e.g. "मिथ्या" / "भ्रामक" / ""
+    # Verdict the scraper chose, e.g. "मिथ्या" / "भ्रामक" / ""
+    # TechPana since 2026-11-23: conclusion, then lead summary, then the
+    # og:image badge (scrapers/techpana.py resolve_verdict). Older files
+    # hold the badge first, and before 12 Oct 2026 sometimes a sidebar badge.
 
     date_published: str
     # Date string EXACTLY as found on the page — NO conversion

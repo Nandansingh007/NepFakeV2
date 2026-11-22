@@ -18,6 +18,11 @@ source_datasets:
 - original
 multilinguality:
 - monolingual
+configs:
+- config_name: default
+  data_files:
+  - split: train
+    path: data/nepfakev2.csv
 ---
 
 # NepFakeV2 🇳🇵
@@ -96,6 +101,15 @@ df = pd.read_csv(
 | `label_source` | string | Where the verdict was read: `nfc_header` (NepalFactCheck header tag), `conclusion` (TechPana conclusion names one verdict), `conclusion_mixed` (conclusion names both मिथ्या and भ्रामक), `summary` (TechPana lead summary), `stored` (scraper's stored value, e.g. the image badge) |
 | `annotator_notes` | string | Edge case flags — empty if clean |
 | `schema_version` | string | 1.1 (1.1 added `label_source`) |
+
+## Changes
+
+**2026-11-22, schema 1.1**
+- New column `label_source`: where each verdict was read (see Data Fields). `stored` rows (46) carry the scraper's image badge rather than a verdict read from the article text; treat them as less reliable.
+- TechPana verdicts now follow one rule: the conclusion box, then the lead summary, then the badge. 3 labels changed: `151229` FALSE_MISLEADING → UNVERIFIED; `150099` and `149828` UNVERIFIED → FALSE_MISLEADING.
+- Example IDs and row count (938) are unchanged.
+
+Full history: [CHANGELOG.md on GitHub](https://github.com/Nandansingh007/NepFakeV2/blob/main/CHANGELOG.md).
 
 ## Dataset Statistics
 
