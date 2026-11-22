@@ -60,7 +60,7 @@ df = pd.read_csv(
 | Labels | 3 (REAL, FALSE_MISLEADING, UNVERIFIED) |
 | Sources | 2 (TechPana, NepalFactCheck) |
 | Updates | Weekly — auto-synced from GitHub |
-| Schema version | 1.0 |
+| Schema version | 1.1 |
 
 ## Labels
 
@@ -93,8 +93,9 @@ df = pd.read_csv(
 | `date_published` | string | ISO date YYYY-MM-DD |
 | `is_native_nepali` | bool | True if Devanagari script detected |
 | `topic_category` | string | politics / health / technology / society / environment / economy / other |
+| `label_source` | string | Where the verdict was read: `nfc_header` (NepalFactCheck header tag), `conclusion` (TechPana conclusion names one verdict), `conclusion_mixed` (conclusion names both मिथ्या and भ्रामक), `summary` (TechPana lead summary), `stored` (scraper's stored value, e.g. the image badge) |
 | `annotator_notes` | string | Edge case flags — empty if clean |
-| `schema_version` | string | 1.0 |
+| `schema_version` | string | 1.1 (1.1 added `label_source`) |
 
 ## Dataset Statistics
 
@@ -115,7 +116,7 @@ See [stats.json](https://huggingface.co/datasets/Nandan007/NepFakeV2/resolve/mai
   year      = {2026},
   publisher = {Hugging Face},
   url       = {https://huggingface.co/datasets/Nandan007/NepFakeV2},
-  note      = {Schema v1.0. Auto-updated weekly.}
+  note      = {Schema v1.1. Auto-updated weekly.}
 }
 ```
 

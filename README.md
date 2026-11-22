@@ -3,7 +3,7 @@
 [![NepFakeV2 Pipeline](https://github.com/Nandansingh007/NepFakeV2/actions/workflows/weekly_scrape.yml/badge.svg)](https://github.com/Nandansingh007/NepFakeV2/actions/workflows/weekly_scrape.yml)
 ![Language](https://img.shields.io/badge/language-Nepali-red)
 ![License](https://img.shields.io/badge/license-CC%20BY%204.0-green)
-![Schema](https://img.shields.io/badge/schema-v1.0-blue)
+![Schema](https://img.shields.io/badge/schema-v1.1-blue)
 
 **Live, auto-updating data infrastructure for Nepali fact-checking and misinformation research.**
 
@@ -100,8 +100,9 @@ See [Limitations](#limitations) on label imbalance.
 | `date_published` | str | ISO date YYYY-MM-DD |
 | `is_native_nepali` | bool | True if Devanagari script detected |
 | `topic_category` | str | politics / health / technology / society / environment / economy / other |
+| `label_source` | str | Where the verdict was read: `nfc_header` (NepalFactCheck header tag), `conclusion` (TechPana conclusion names one verdict), `conclusion_mixed` (conclusion names both मिथ्या and भ्रामक), `summary` (TechPana lead summary), `stored` (scraper's stored value, e.g. the image badge) |
 | `annotator_notes` | str | Edge case flags — empty if clean |
-| `schema_version` | str | 1.0 |
+| `schema_version` | str | 1.1 (1.1 added `label_source`) |
 
 ---
 
@@ -151,7 +152,7 @@ flowchart LR
 | 🗃 Raw articles scraped | **961** |
 | ✅ Normalized examples | **938** |
 | 📅 Date range | 2020-03-13 → 2026-10-30 |
-| 🕒 Last updated | 2026-11-16 06:19 UTC |
+| 🕒 Last updated | 2026-11-22 04:42 UTC |
 
 **Last run:** 2026-11-16 &nbsp;|&nbsp; ✓ TechPana: +0 new &nbsp;|&nbsp; ✓ NepalFactCheck: +0 new
 
@@ -161,8 +162,8 @@ flowchart LR
 | Label | Count | % |
 |-------|------:|--:|
 | REAL                 |    17 |   1.8% |
-| FALSE_MISLEADING     |   894 |  95.3% |
-| UNVERIFIED           |    27 |   2.9% |
+| FALSE_MISLEADING     |   895 |  95.4% |
+| UNVERIFIED           |    26 |   2.8% |
 | UNKNOWN              |     0 |   0.0% |
 
 ### Source Breakdown (raw)
@@ -209,7 +210,7 @@ Normalized examples went from 952 to 931 on the same raw data. If you used an ea
   year      = {2026},
   publisher = {GitHub},
   url       = {https://github.com/Nandansingh007/NepFakeV2},
-  note      = {Schema v1.0. Auto-updated weekly. Cite the collection date of the snapshot you used.}
+  note      = {Schema v1.1. Auto-updated weekly. Cite the collection date of the snapshot you used.}
 }
 ```
 

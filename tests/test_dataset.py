@@ -18,7 +18,8 @@ pytestmark = pytest.mark.data
 REQUIRED_COLS = [
     'example_id', 'claim_text', 'verdict_label', 'verdict_label_text',
     'evidence_text', 'source_name', 'source_url', 'date_published',
-    'is_native_nepali', 'topic_category', 'label_basis', 'annotator_notes',
+    'is_native_nepali', 'topic_category', 'label_basis', 'label_source',
+    'annotator_notes', 'schema_version',
 ]
 
 
@@ -112,6 +113,19 @@ def test_stats_freshness(stats):
     hours = (datetime.now(timezone.utc) - dt).total_seconds() / 3600
     if hours > 48:
         warnings.warn(f"stats.json updated {hours:.0f} hours ago")
+
+
+def test_label_source_values(df):
+    from config.settings import LABEL_SOURCES
+    bad = df[~df['label_source'].isin(set(LABEL_SOURCES))]
+    assert bad.empty, f"{len(bad)} rows with unknown label_source: {bad['label_source'].unique()[:5]}"
+
+
+def test_schema_version_matches_code(df, stats):
+    # Fails if data/ was not regenerated after a schema bump
+    from config.settings import SCHEMA_VERSION
+    assert set(df['schema_version'].astype(str)) == {SCHEMA_VERSION}
+    assert stats.get('schema_version') == SCHEMA_VERSION
 
 
 def test_json_count_matches_csv(df):

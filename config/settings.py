@@ -76,7 +76,7 @@ ACTIVE_SOURCES = {
 # SCHEMA
 # =============================================================================
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"   # 1.1 (Nov 2026): added label_source
 
 # NepFakeV2 label definitions
 # -1 = UNKNOWN: verdict present in source but no mapping defined
@@ -88,6 +88,19 @@ LABELS = {
 }
 
 LABEL_TO_INT = {v: k for k, v in LABELS.items()}
+
+# Where a record's verdict was read (label_source column, schema 1.1).
+# Set in pipeline/normalizer.py; TechPana rule in scrapers/techpana.py
+# resolve_verdict().
+LABEL_SOURCES = {
+    "nfc_header":       "NepalFactCheck header tag (line 3 of the body)",
+    "conclusion":       "TechPana conclusion box names exactly one verdict",
+    "conclusion_mixed": "TechPana conclusion names both मिथ्या and भ्रामक",
+    "summary":          "TechPana lead summary (no usable conclusion)",
+    "stored":           "value the scraper stored: TechPana og:image badge "
+                        "(files before 12 Oct 2026 may hold a sidebar badge), "
+                        "NepalFactCheck article without a header tag",
+}
 
 # =============================================================================
 # SCRAPING SETTINGS

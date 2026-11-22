@@ -102,6 +102,13 @@ class NepFakeV2Example:
     # --- Quality flags ---
     is_native_nepali: bool = False
     label_basis: str = "fact_checker_verdict"
+    label_source: str = ""
+    # Where the verdict was read (schema 1.1):
+    #   "nfc_header"       NepalFactCheck header tag
+    #   "conclusion"       TechPana conclusion box names exactly one verdict
+    #   "conclusion_mixed" conclusion names both मिथ्या and भ्रामक
+    #   "summary"          TechPana lead summary (no usable conclusion)
+    #   "stored"           value stored by the scraper (badge / old scraper)
     topic_category: str = "other"
     annotator_notes: str = ""
     split: str = ""
@@ -149,6 +156,7 @@ def to_dict(example: NepFakeV2Example) -> dict:
         "date_published":         example.date_published,
         "is_native_nepali":       example.is_native_nepali,
         "label_basis":            example.label_basis,
+        "label_source":           example.label_source,
         "topic_category":         example.topic_category,
         "annotator_notes":        example.annotator_notes,
         "split":                  example.split,
@@ -173,6 +181,7 @@ def from_dict(d: dict) -> NepFakeV2Example:
         date_published=         d.get("date_published", ""),
         is_native_nepali=       d.get("is_native_nepali", False),
         label_basis=            d.get("label_basis", "fact_checker_verdict"),
+        label_source=           d.get("label_source", "") or "",
         topic_category=         d.get("topic_category", "other"),
         annotator_notes=        d.get("annotator_notes", ""),
         split=                  d.get("split", ""),

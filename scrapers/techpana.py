@@ -6,7 +6,8 @@
 # HTML structure (verified 31 Aug 2026):
 #   Article cards: <h3><a href="/2026/XXXXXX/slug">title</a></h3>
 #   Date:          Plain text — "भदौ ९, २०८३ १६:८" (BS format)
-#   Verdict:       og:image filename e.g. "False_xxx.jpg"
+#   Verdict:       conclusion box, then lead summary, then og:image
+#                  filename e.g. "False_xxx.jpg" (see resolve_verdict)
 #   Pagination:    ?tab=nepali&page={n}
 #
 # Stage 1 principles:
@@ -32,6 +33,12 @@
 #   - is_factcheck_article() was defined but never called; it is now called,
 #     with a stricter test (dropped 4 non-fact-checks: ChatGPT tips, Redmi,
 #     iPhone, an EV-fire news story).
+# Fix (Nov 2026, Phase 1):
+#   - Verdict order was badge first, conclusion second; the normalizer used
+#     the reverse, so 54 raw verdicts disagreed with the dataset. Both now
+#     call resolve_verdict(): conclusion, then lead summary, then badge, and
+#     it also says where the verdict came from (label_source).
+#   - "गलत" maps to भ्रामक (misleading), not मिथ्या.
 # =============================================================================
 
 import re
@@ -153,7 +160,8 @@ VERDICT_KEYWORDS = {
     # Informal Nepali
     "झुटो":   "मिथ्या",   # informal "false"
     "साँचो":  "सही",      # informal "true"
-    "गलत":    "मिथ्या",   # "wrong"
+    "गलत":    "भ्रामक",   # "wrong": used for partly-true claims (e.g. a real
+                          # death at the wrong place), so MISLEADING, not FALSE
     "सत्य":   "सही",      # formal "true"
     "असत्य":  "मिथ्या",   # formal "untrue"
     "भ्रम":   "भ्रामक",   # "confusion/misleading"
@@ -239,35 +247,120 @@ def extract_verdict_from_image(img_url: str) -> Optional[str]:
     return None
 
 
-def extract_verdict_from_body(body_text: str) -> Optional[str]:
+# "सही होइन" / "सत्य छैन" means NOT true: these phrases are dropped before
+# looking for verdict words
+NEGATED_TRUE = re.compile(
+    r"(?:सही|सत्य|साँचो)\s*(?:हो\s*)?(?:होइन|हैन|छैन|होइनन्|नभएको|नरहेको|हुँदैन|ठहरिँदैन)")
+
+# Summary sentences that report the desk's finding, e.g.
+# "तर, टेकपाना फ्याक्टचेक डेस्कको अनुसन्धानबाट उक्त दाबी मिथ्या रहेको पुष्टि भएको छ ।"
+FINDING_CUE = re.compile(r"फ्याक्ट\s*चेक|तथ्य\s*जाँच|अनुसन्धान|पुष्टि")
+
+
+def named_verdicts(text: str) -> set:
     """
-    Extract verdict from body text.
-    Strips sidebar first, then searches conclusion section,
-    then full cleaned body.
+    The set of verdicts a piece of text names, e.g. {"मिथ्या"} or
+    {"मिथ्या", "भ्रामक"}. Negated "true" phrases are ignored, and keywords
+    match whole words only ("भ्रम" must not match "भ्रमण").
+    """
+    if not text:
+        return set()
+    text = NEGATED_TRUE.sub(" ", text)
+    return {
+        verdict for keyword, verdict in VERDICT_KEYWORDS.items()
+        if re.search(rf"(?<![\u0900-\u097F]){re.escape(keyword)}(?![\u0900-\u097F])", text)
+    }
+
+
+def conclusion_verdicts(body_text: str) -> Optional[set]:
+    """
+    Verdicts named in the LAST "निष्कर्ष" section (the conclusion box, not
+    the narrative). None if the article has no "निष्कर्ष" heading.
+
+    The heading is found BEFORE stripping the sidebar: TechPana puts a
+    "सम्बन्धित समाचार" box inside the article, and stripping first threw
+    the conclusion away.
     """
     if not body_text:
         return None
-
-    # Only the LAST "निष्कर्ष" heading (the conclusion box, not the narrative).
-    # Find it BEFORE stripping the sidebar: TechPana puts a "सम्बन्धित समाचार"
-    # box inside the article, and stripping first threw the conclusion away.
     headings = list(re.finditer(r"\n\s*निष्कर्ष\s*\n", body_text))
     if not headings:
         return None
-    search_text = strip_sidebar(body_text[headings[-1].end():])
+    return named_verdicts(strip_sidebar(body_text[headings[-1].end():]))
 
-    # "सही होइन" / "सत्य छैन" means NOT true: drop negated phrases first
-    search_text = re.sub(
-        r"(?:सही|सत्य|साँचो)\s*(?:हो\s*)?(?:होइन|हैन|छैन|होइनन्|नभएको|नरहेको|हुँदैन|ठहरिँदैन)",
-        " ", search_text)
 
-    # Whole words only ("भ्रम" must not match "भ्रमण"); answer only if exactly
-    # one verdict is named, otherwise leave it for a person to decide
-    found = {
-        verdict for keyword, verdict in VERDICT_KEYWORDS.items()
-        if re.search(rf"(?<![\u0900-\u097F]){re.escape(keyword)}(?![\u0900-\u097F])", search_text)
-    }
-    return found.pop() if len(found) == 1 else None
+def extract_verdict_from_body(body_text: str) -> Optional[str]:
+    """
+    Verdict from the conclusion box, only if it names exactly one verdict.
+    Otherwise None (no heading, no verdict word, or several verdicts).
+    """
+    found = conclusion_verdicts(body_text)
+    return next(iter(found)) if found and len(found) == 1 else None
+
+
+def extract_verdict_from_summary(body_text: str) -> Optional[str]:
+    """
+    Verdict from the lead summary: the paragraphs between the article's own
+    date line and the first "दाबी" heading. Only sentences that report the
+    desk's finding count (FINDING_CUE). Returns a verdict only if exactly
+    one is named; None if there is no "दाबी" heading.
+    """
+    if not body_text:
+        return None
+    claim_heading = re.search(r"\n\s*दा[बव]ी\s*\n", body_text)
+    if not claim_heading:
+        return None
+    lead = body_text[:claim_heading.start()]
+    own_date = extract_own_date(lead)
+    if own_date:
+        lead = lead[lead.index(own_date) + len(own_date):]
+    sentences = [s for s in re.split(r"[।\n]", lead) if FINDING_CUE.search(s)]
+    found = set().union(*(named_verdicts(s) for s in sentences)) if sentences else set()
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def resolve_verdict(body_text: str, fallback: str = "") -> tuple[str, str]:
+    """
+    THE verdict rule for TechPana, used by both the scraper and the
+    normalizer, so the two can never disagree again.
+
+    Order (first match wins):
+      1. the conclusion box names exactly one verdict
+             -> (that verdict, "conclusion")
+      2. the conclusion names both मिथ्या and भ्रामक
+             -> (fallback, "conclusion_mixed")
+         The fact-checker gave both labels. The summary is NOT used to pick
+         one, so the row stays marked as mixed. The verdict returned only
+         feeds the coarse label (both map to FALSE_MISLEADING); if the
+         fallback is not one of the two, भ्रामक is used.
+      3. the lead summary names exactly one verdict
+             -> (that verdict, "summary")
+      4. otherwise
+             -> (fallback, "stored")
+    The label_source values are documented in config/settings.py
+    LABEL_SOURCES.
+
+    Args:
+        body_text: article body text
+        fallback:  the value to fall back on (the og:image badge in the
+                   scraper, the stored raw_verdict_text in the normalizer)
+
+    Returns:
+        (verdict, label_source). verdict is "" if nothing was found.
+    """
+    fallback = (fallback or "").strip()
+
+    found = conclusion_verdicts(body_text)
+    if found and len(found) == 1:
+        return next(iter(found)), "conclusion"
+    if found == {"मिथ्या", "भ्रामक"}:
+        return (fallback if fallback in ("मिथ्या", "भ्रामक") else "भ्रामक"), "conclusion_mixed"
+
+    summary = extract_verdict_from_summary(body_text)
+    if summary:
+        return summary, "summary"
+
+    return fallback, "stored"
 
 
 # =============================================================================
@@ -415,24 +508,29 @@ class TechpanaScraper(BaseScraper):
                     self.logger.warning(f"Date fallback to year only: {url}")
 
             # --- Verdict ---
-            raw_verdict = ""
-
-            # Strategy 1: og:image filename
+            # One rule for scraper and normalizer: conclusion, then lead
+            # summary, then the og:image badge (see resolve_verdict).
+            # Until Nov 2026 the badge was read FIRST here, while the
+            # normalizer read the conclusion first, so raw files stored
+            # verdicts the dataset then overrode (54 TechPana rows).
+            badge = ""
             og_image = soup.find("meta", property="og:image")
             if og_image:
-                raw_verdict = extract_verdict_from_image(
+                badge = extract_verdict_from_image(
                     og_image.get("content", "")
                 ) or ""
 
             # (Removed Oct 2026: search over ALL <img> tags, which returned
             #  badges of sidebar articles.)
 
-            # Strategy 2: the conclusion box ("निष्कर्ष") text
-            if not raw_verdict:
-                raw_verdict = extract_verdict_from_body(body_text) or ""
+            raw_verdict, label_source = resolve_verdict(body_text, badge)
 
             if not raw_verdict:
                 self.logger.warning(f"No verdict found: {url}")
+            elif badge and raw_verdict != badge:
+                self.logger.info(
+                    f"Badge says {badge}, {label_source} says {raw_verdict}: {url}"
+                )
 
             # --- External links ---
             external_links = []

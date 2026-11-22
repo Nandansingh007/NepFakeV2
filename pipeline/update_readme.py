@@ -241,6 +241,6 @@ def update_readme_stats() -> bool:
         content[end_idx + len(STATS_END):]
     )
 
-    README_PATH.write_text(new_content, encoding="utf-8")
+    README_PATH.write_text(new_content, encoding="utf-8", newline="\n")  # LF on Windows too
     logger.info("README.md stats block updated")
     return True

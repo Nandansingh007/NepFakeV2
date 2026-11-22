@@ -11,7 +11,7 @@
 from dataclasses import dataclass
 from typing import List
 from schema.schema import NepFakeV2Example, RawArticle
-from config.settings import LABELS, is_devanagari
+from config.settings import LABELS, LABEL_SOURCES, is_devanagari
 
 
 # =============================================================================
@@ -161,6 +161,14 @@ def validate_example(example: NepFakeV2Example) -> ValidationResult:
             f"fact_checker source must have label_basis='fact_checker_verdict', "
             f"got '{example.label_basis}'"
         )
+
+    # --- label_source (schema 1.1) ---
+    # Empty is allowed (records built by hand, or read from a 1.0 file);
+    # anything else must be a known source.
+    if example.label_source and example.label_source not in LABEL_SOURCES:
+        errors.append(f"label_source invalid: {example.label_source}")
+    elif not example.label_source:
+        warnings.append("label_source is empty")
 
     # --- is_native_nepali consistency ---
     if example.is_native_nepali and not is_devanagari(example.claim_text):

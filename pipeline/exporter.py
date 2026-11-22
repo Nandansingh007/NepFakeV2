@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from config.settings import DATA_DIR, LABELS
+from config.settings import DATA_DIR, LABELS, SCHEMA_VERSION
 from schema.schema import NepFakeV2Example, to_dict
 
 logger = logging.getLogger("nepfakev2.exporter")
@@ -63,12 +63,14 @@ def export(examples: list[NepFakeV2Example]) -> dict:
     # --- Export CSV ---
     csv_path = DATA_DIR / "nepfakev2.csv"
     df = pd.DataFrame(records)
-    df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+    # lineterminator / newline="\n": same bytes on Windows and Linux (CI),
+    # otherwise a local rebuild on Windows rewrites every line as CRLF
+    df.to_csv(csv_path, index=False, encoding="utf-8-sig", lineterminator="\n")
     logger.info(f"Exported CSV: {csv_path} ({len(records)} records)")
 
     # --- Export JSON ---
     json_path = DATA_DIR / "nepfakev2.json"
-    with open(json_path, "w", encoding="utf-8") as f:
+    with open(json_path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(records, f, ensure_ascii=False, indent=2)
     logger.info(f"Exported JSON: {json_path} ({len(records)} records)")
 
@@ -76,7 +78,7 @@ def export(examples: list[NepFakeV2Example]) -> dict:
     # Pass full examples list so unknowns appear in label_distribution
     stats = compute_stats(examples)
     stats_path = DATA_DIR / "stats.json"
-    with open(stats_path, "w", encoding="utf-8") as f:
+    with open(stats_path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
     logger.info(f"Exported stats: {stats_path}")
 
@@ -121,6 +123,12 @@ def compute_stats(examples: list[NepFakeV2Example]) -> dict:
     # Nepali language stats
     nepali_count = sum(1 for e in examples if e.is_native_nepali)
 
+    # Where each verdict was read (label_source)
+    label_source_dist = {}
+    for e in examples:
+        key = e.label_source or "unset"
+        label_source_dist[key] = label_source_dist.get(key, 0) + 1
+
     # Annotator notes stats
     flagged = sum(1 for e in examples if e.annotator_notes)
 
@@ -160,6 +168,15 @@ def compute_stats(examples: list[NepFakeV2Example]) -> dict:
             "total_with_date": len(dates),
             "total_without_date": total - len(dates),
         },
+        "label_source_distribution": {
+            source: {
+                "count": count,
+                "pct": f"{count/total*100:.1f}%"
+            }
+            for source, count in sorted(
+                label_source_dist.items(), key=lambda x: -x[1]
+            )
+        },
         "language": {
             "nepali_script": nepali_count,
             "nepali_pct": f"{nepali_count/total*100:.1f}%",
@@ -168,7 +185,7 @@ def compute_stats(examples: list[NepFakeV2Example]) -> dict:
             "flagged_for_review": flagged,
             "flagged_pct": f"{flagged/total*100:.1f}%",
         },
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,   # was hardcoded "1.0"
     }
 
     return stats

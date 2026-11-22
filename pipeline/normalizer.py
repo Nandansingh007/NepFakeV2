@@ -28,7 +28,7 @@ from schema.schema import NepFakeV2Example, make_example_id
 from schema.validator import validate_batch
 from pipeline.label_mapper import map_verdict
 from scrapers.techpana import (BS_MONTHS, parse_bs_date, extract_own_date,
-                               is_factcheck_article, extract_verdict_from_body)
+                               is_factcheck_article, resolve_verdict)
 from scrapers.nepalfactcheck import extract_verdict_from_header
 
 logger = logging.getLogger("nepfakev2.normalizer")
@@ -181,10 +181,13 @@ def normalize_article(
 
     # --- Oct 2026 repairs, re-derived from saved text (raw files unchanged) ---
     is_explainer = False
+    label_source = "stored"
     if source_name == "nepalfactcheck":
         # Verdict from the article's own header tag. The old scraper read
         # sidebar badges: 39 of 677 verdicts wrong.
-        raw_verdict = extract_verdict_from_header(body_text) or raw_verdict
+        header_verdict = extract_verdict_from_header(body_text)
+        if header_verdict:
+            raw_verdict, label_source = header_verdict, "nfc_header"
         # Explainers (header tag "एक्सप्लेनर") explain a topic; they do not
         # check a claim, so they get no verdict label.
         head = body_text.split("\n")[2] if body_text.count("\n") >= 2 else ""
@@ -197,10 +200,11 @@ def normalize_article(
         # Date from the article's own date line. The old scraper often took
         # a sidebar date: 145 of 275 dates were wrong.
         raw_date = extract_own_date(body_text) or raw_date
-        # Verdict from the fact-checker's own conclusion ("निष्कर्ष") when it
-        # names exactly one; the stored value often came from sidebar badges
+        # Same rule as the scraper (scrapers/techpana.py resolve_verdict):
+        # conclusion, then lead summary, then the stored value. The stored
+        # value in files before 12 Oct 2026 often came from sidebar badges
         # (e.g. claims concluded "साँचो हो" were stored as false).
-        raw_verdict = extract_verdict_from_body(body_text) or raw_verdict
+        raw_verdict, label_source = resolve_verdict(body_text, raw_verdict)
     annotator_notes = raw.get("annotator_notes", "")
 
     # --- Skip if no title or body ---
@@ -250,6 +254,7 @@ def normalize_article(
         date_published=date_published,
         is_native_nepali=is_native_nepali,
         label_basis="fact_checker_verdict",
+        label_source=label_source,
         topic_category=topic_category,
         annotator_notes=annotator_notes,
         split="",

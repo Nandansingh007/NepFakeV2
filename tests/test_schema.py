@@ -61,7 +61,7 @@ def test_to_dict_keys_and_types(example):
         'example_id', 'claim_text', 'verdict_label', 'verdict_label_text',
         'evidence_text', 'evidence_sentences', 'external_evidence_urls',
         'source_name', 'source_type', 'source_url', 'source_outlet',
-        'date_published', 'is_native_nepali', 'label_basis',
+        'date_published', 'is_native_nepali', 'label_basis', 'label_source',
         'topic_category', 'annotator_notes', 'split', 'schema_version',
     ]
     missing = [k for k in required_keys if k not in d]

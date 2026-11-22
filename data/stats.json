@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-11-16T06:19:09.711871+00:00",
+  "last_updated": "2026-11-22T04:42:59.069440+00:00",
   "total_examples": 938,
   "total_including_unknown": 938,
   "label_distribution": {
@@ -8,12 +8,12 @@
       "pct": "1.8%"
     },
     "FALSE_MISLEADING": {
-      "count": 894,
-      "pct": "95.3%"
+      "count": 895,
+      "pct": "95.4%"
     },
     "UNVERIFIED": {
-      "count": 27,
-      "pct": "2.9%"
+      "count": 26,
+      "pct": "2.8%"
     }
   },
   "source_distribution": {
@@ -62,6 +62,28 @@
     "total_with_date": 938,
     "total_without_date": 0
   },
+  "label_source_distribution": {
+    "nfc_header": {
+      "count": 662,
+      "pct": "70.6%"
+    },
+    "conclusion": {
+      "count": 191,
+      "pct": "20.4%"
+    },
+    "stored": {
+      "count": 46,
+      "pct": "4.9%"
+    },
+    "conclusion_mixed": {
+      "count": 23,
+      "pct": "2.5%"
+    },
+    "summary": {
+      "count": 16,
+      "pct": "1.7%"
+    }
+  },
   "language": {
     "nepali_script": 936,
     "nepali_pct": "99.8%"
@@ -70,5 +92,5 @@
     "flagged_for_review": 0,
     "flagged_pct": "0.0%"
   },
-  "schema_version": "1.0"
+  "schema_version": "1.1"
 }

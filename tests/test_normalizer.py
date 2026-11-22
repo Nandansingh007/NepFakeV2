@@ -2,8 +2,8 @@
 Test: pipeline/normalizer.py
 Date conversion, plus basic shape checks on normalize_all() over raw/.
 
-NOTE (Phase 0): ported 1:1. The extract_verdict_* / explainer functions are
-still untested; that is Phase 1 work.
+NOTE (Phase 0): ported 1:1. The TechPana verdict rule is tested in
+test_verdict_resolution.py (Phase 1, fix 1); the explainer check is not yet.
 """
 import pytest
 
