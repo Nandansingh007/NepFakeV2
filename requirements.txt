@@ -24,4 +24,4 @@ pytest-socket==0.8.1   # blocks network access inside tests
 nepali-datetime==1.0.8.5
 
 # hugging Face
-huggingface_hub>=0.23.0
+huggingface_hub==2.4.0   # pinned: tag and commit API (pipeline/versioning.py, hf_push.py)

@@ -11,7 +11,8 @@ pytestmark = pytest.mark.data
 
 @pytest.fixture(scope="module")
 def stats(deduped):
-    return compute_stats(deduped)
+    from pipeline.normalizer import LAST_EXCLUSIONS
+    return compute_stats(deduped, LAST_EXCLUSIONS)
 
 
 def test_pipeline_count(deduped):
@@ -28,15 +29,17 @@ def test_stats_keys(stats):
     assert not missing, missing
 
 
-def test_total_examples_not_above_total_including_unknown(stats):
-    # Weak check, kept from the old script: today both numbers are always
-    # equal because unknowns are dropped before compute_stats() sees them.
-    assert stats['total_examples'] <= stats['total_including_unknown']
+def test_total_including_unknown_counts_exclusions(stats):
+    # 2.0: total_including_unknown = exported rows + rows left out (excluded.csv).
+    # Before 2.0 both numbers were always equal, which hid the 23 exclusions.
+    assert stats['total_including_unknown'] == (
+        stats['total_examples'] + sum(stats['excluded'].values()))
+    assert stats['total_including_unknown'] > stats['total_examples']
 
 
 def test_label_distribution_sums_to_total(stats):
     label_total = sum(v['count'] for v in stats['label_distribution'].values())
-    assert label_total == stats['total_including_unknown']
+    assert label_total == stats['total_examples']
 
 
 def test_source_distribution_sums_to_examples(stats, deduped):

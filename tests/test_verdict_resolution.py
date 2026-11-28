@@ -135,7 +135,8 @@ def test_extract_verdict_from_body_unchanged_contract():
 def test_every_label_source_is_documented():
     from scrapers.techpana import resolve_verdict  # noqa: F401
     assert set(LABEL_SOURCES) == {
-        "nfc_header", "conclusion", "conclusion_mixed", "summary", "stored"}
+        "nfc_header", "conclusion", "conclusion_mixed", "summary", "stored",
+        "hand_checked"}   # 2.0: set only from data_validation/reference_labels.csv
 
 
 # -----------------------------------------------------------------------------
@@ -246,11 +247,10 @@ def test_new_raw_files_agree_with_normalizer():
 
 
 # -----------------------------------------------------------------------------
-# Schema 1.1 plumbing
+# label_source plumbing (added in schema 1.1)
 # -----------------------------------------------------------------------------
 
-def test_schema_version_is_1_1():
-    assert SCHEMA_VERSION == "1.1"
+# (Schema version is checked in test_label_fine.py: 2.0 since fix 2.)
 
 
 def test_label_source_round_trips():

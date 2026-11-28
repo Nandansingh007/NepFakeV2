@@ -76,7 +76,7 @@ ACTIVE_SOURCES = {
 # SCHEMA
 # =============================================================================
 
-SCHEMA_VERSION = "1.1"   # 1.1 (Nov 2026): added label_source
+SCHEMA_VERSION = "2.0"   # 1.1: label_source; 2.0: see CHANGELOG.md (labels, IDs, clean text, splits)
 
 # NepFakeV2 label definitions
 # -1 = UNKNOWN: verdict present in source but no mapping defined
@@ -89,6 +89,30 @@ LABELS = {
 
 LABEL_TO_INT = {v: k for k, v in LABELS.items()}
 
+# Fine labels (schema 2.0). verdict_label above is the coarse label and is
+# kept unchanged; label_fine splits FALSE_MISLEADING into FALSE / MISLEADING.
+LABELS_FINE = {
+    "FALSE":      "मिथ्या: the claim is fabricated or untrue",
+    "MISLEADING": "भ्रामक: real content, wrong context or a distorted claim",
+    "TRUE":       "सही: the claim is accurate",
+    "UNVERIFIED": "अपुष्ट: could not be confirmed or refuted",
+    "MIXED":      "TechPana conclusion names both मिथ्या and भ्रामक",
+}
+
+# Every fine label has exactly one coarse label
+LABEL_FINE_TO_COARSE = {
+    "FALSE": 1, "MISLEADING": 1, "MIXED": 1,
+    "TRUE": 0,
+    "UNVERIFIED": 2,
+}
+
+# Main benchmark task: FALSE vs MISLEADING. Rows whose verdict was not read
+# from the article text are left out (in_main_benchmark = False):
+#   conclusion_mixed  the fact-checker gave both labels
+#   stored            only the scraper's badge (decision 22 Nov 2026:
+#                     excluded until hand-checked)
+BENCHMARK_EXCLUDED_SOURCES = {"conclusion_mixed", "stored"}
+
 # Where a record's verdict was read (label_source column, schema 1.1).
 # Set in pipeline/normalizer.py; TechPana rule in scrapers/techpana.py
 # resolve_verdict().
@@ -100,7 +124,46 @@ LABEL_SOURCES = {
     "stored":           "value the scraper stored: TechPana og:image badge "
                         "(files before 12 Oct 2026 may hold a sidebar badge), "
                         "NepalFactCheck article without a header tag",
+    "hand_checked":     "a person read the article (data_validation/reference_labels.csv)",
 }
+
+# Where claim_text came from (pipeline/claim_extractor.py)
+CLAIM_SOURCES = ("claim_box", "lead_quote", "lead", "claim_section", "headline")
+
+# =============================================================================
+# SPLITS (pipeline/splitter.py)
+# =============================================================================
+# Time split: by date_published. The boundaries are a decision (see
+# DATASHEET.md); changing them after the freeze needs a new release.
+SPLIT_TIME_BOUNDARIES = {
+    "train_until": "2024-12-31",   # train: <= this date
+    "dev_until":   "2025-12-31",   # dev:   2025
+}                                   # test:  after dev_until
+# Random control split (split_random): by claim group, so one claim never
+# sits in two splits. Shares of claim groups, seeded by a hash.
+SPLIT_RANDOM_SHARES = {"train": 0.70, "dev": 0.10, "test": 0.20}
+SPLIT_SEED = "nepfakev2-2.0"
+# Claim groups: two articles about the same claim (often TechPana and
+# NepalFactCheck checking the same viral post) share claim_group_id.
+CLAIM_GROUP_MAX_DAYS = 30
+CLAIM_GROUP_MIN_SIMILARITY = 0.35      # share of the smaller claim's word weight
+CLAIM_GROUP_MIN_SHARED_WEIGHT = 12.0   # about 3 rare words in common
+# Frozen split file: written once by `python -m pipeline.splitter freeze`
+SPLIT_FILE = BASE_DIR / "data" / "splits_v2.0.csv"
+SPLIT_MANIFEST = BASE_DIR / "data" / "splits_v2.0.manifest.json"
+
+# =============================================================================
+# VERSIONS AND TAGS (VERSIONING.md)
+# =============================================================================
+# DATASET_VERSION names the benchmark release (git tag and HF tag "v2.0").
+# It is not SCHEMA_VERSION: v2.1 can add frozen rows on schema 2.0.
+DATASET_VERSION = "2.0"
+RELEASE_TAG = f"v{DATASET_VERSION}"
+# Release files, written once by `python -m pipeline.splitter release`
+RELEASE_DIR = BASE_DIR / "data" / RELEASE_TAG
+# Every successful weekly push is tagged "run-YYYY-MM-DD" (UTC date) on
+# GitHub and on Hugging Face. A run tag is a data snapshot, not a benchmark.
+RUN_TAG_PREFIX = "run-"
 
 # =============================================================================
 # SCRAPING SETTINGS

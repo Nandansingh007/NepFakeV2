@@ -1,9 +1,8 @@
 """
 Test: the committed data/nepfakev2.csv, data/nepfakev2.json, data/stats.json.
 
-NOTE (Phase 0): ported 1:1. This checks the committed *files*, not the
-code. A stale file still passes. A "rebuild from raw/ reproduces the CSV
-byte-for-byte" check is planned for later (test plan N10).
+This checks the committed *files*. That the files are what the code makes
+from raw/ is checked in tests/test_rebuild_reproducible.py (test plan N10).
 """
 import json
 import warnings
@@ -15,11 +14,15 @@ import pytest
 
 pytestmark = pytest.mark.data
 
+# Schema 2.0: exactly these columns, in this order (schema/schema.py COLUMNS)
 REQUIRED_COLS = [
-    'example_id', 'claim_text', 'verdict_label', 'verdict_label_text',
-    'evidence_text', 'source_name', 'source_url', 'date_published',
-    'is_native_nepali', 'topic_category', 'label_basis', 'label_source',
-    'annotator_notes', 'schema_version',
+    "example_id", "claim_text", "claim_source", "headline",
+    "verdict_label", "verdict_label_text", "label_fine", "label_source",
+    "in_main_benchmark", "evidence_text", "conclusion_text",
+    "external_evidence_urls", "source_name", "source_type", "source_url",
+    "date_published", "date_precision", "date_scraped", "language",
+    "is_native_nepali", "label_basis", "topic_category", "annotator_notes",
+    "claim_group_id", "split", "split_random", "schema_version",
 ]
 
 
@@ -42,8 +45,7 @@ def test_row_count(df):
 
 
 def test_required_columns(df):
-    missing = [c for c in REQUIRED_COLS if c not in df.columns]
-    assert not missing, missing
+    assert list(df.columns) == REQUIRED_COLS
 
 
 @pytest.mark.parametrize(
@@ -126,6 +128,18 @@ def test_schema_version_matches_code(df, stats):
     from config.settings import SCHEMA_VERSION
     assert set(df['schema_version'].astype(str)) == {SCHEMA_VERSION}
     assert stats.get('schema_version') == SCHEMA_VERSION
+
+
+def test_label_fine_values(df):
+    from config.settings import LABELS_FINE, LABEL_FINE_TO_COARSE
+    bad = df[~df['label_fine'].isin(set(LABELS_FINE))]
+    assert bad.empty, f"{len(bad)} rows with unknown label_fine"
+    mismatch = df[df['label_fine'].map(LABEL_FINE_TO_COARSE) != df['verdict_label']]
+    assert mismatch.empty, f"{len(mismatch)} rows where label_fine and verdict_label disagree"
+
+
+def test_stats_main_benchmark_matches_csv(df, stats):
+    assert stats['main_benchmark']['total'] == int(df['in_main_benchmark'].sum())
 
 
 def test_json_count_matches_csv(df):

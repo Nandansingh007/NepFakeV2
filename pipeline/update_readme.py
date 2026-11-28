@@ -38,6 +38,7 @@ VERDICT_DISPLAY = {
 }
 
 LABEL_ORDER = ["REAL", "FALSE_MISLEADING", "UNVERIFIED", "UNKNOWN"]
+FINE_ORDER  = ["FALSE", "MISLEADING", "MIXED", "TRUE", "UNVERIFIED"]
 
 SOURCE_DISPLAY = {
     "techpana":       "TechPana",
@@ -161,17 +162,41 @@ def build_stats_block(stats: dict, raw_stats: dict) -> str:
     if "UNKNOWN" not in label_dist:
         label_rows += f"| {'UNKNOWN':<20} | {0:>5} | {'0.0%':>6} |\n"
 
+    # Fine labels per source (schema 2.0)
+    fine_by_source = stats.get("label_fine_by_source", {})
+    fine_rows = ""
+    for source_key, counts in fine_by_source.items():
+        name = SOURCE_DISPLAY.get(source_key, source_key)
+        cells = " | ".join(f"{counts.get(lab, 0):>4}" for lab in FINE_ORDER)
+        fine_rows += f"| {name:<16} | {cells} |\n"
+    bench = stats.get("main_benchmark", {})
+    bench_line = (
+        f"Main benchmark (FALSE vs MISLEADING, `in_main_benchmark`): "
+        f"**{bench.get('total', 0)}** rows "
+        f"({bench.get('FALSE', 0)} FALSE, {bench.get('MISLEADING', 0)} MISLEADING)"
+    ) if bench else ""
+
     # Source verdict breakdown
     source_breakdown = format_source_verdict_breakdown(raw_by_source)
 
-    # Unmapped note
+    # Articles left out (schema 2.0: listed in data/excluded.csv)
     unmapped_note = ""
+    excluded = stats.get("excluded", {})
     if unknown_count > 0:
+        reasons = ", ".join(f"{k} {v}" for k, v in excluded.items()) or "see data/excluded.csv"
         unmapped_note = (
-            f"\n> ⚠ **{unknown_count} unmapped records** excluded from dataset "
-            f"— verdict text could not be mapped to a label. "
-            f"See `annotator_notes` field in raw data.\n"
+            f"\n> **{unknown_count} articles left out** ({reasons}). "
+            f"Each is listed with its reason in `data/excluded.csv`.\n"
         )
+
+    # Splits (schema 2.0)
+    split_line = ""
+    if stats.get("split_distribution"):
+        frozen = "frozen" if "new" in stats["split_distribution"] or \
+            (DATA_DIR / "splits_v2.0.csv").exists() else "provisional until the freeze"
+        fmt = lambda d: ", ".join(f"{k} {v}" for k, v in d.items())
+        split_line = (f"Splits ({frozen}): time `split` {fmt(stats['split_distribution'])}; "
+                      f"random control `split_random` {fmt(stats.get('split_random_distribution', {}))}")
 
     block = f"""\
 <!-- STATS_START -->
@@ -192,6 +217,15 @@ def build_stats_block(stats: dict, raw_stats: dict) -> str:
 | Label | Count | % |
 |-------|------:|--:|
 {label_rows}
+### Fine Labels (normalized, `label_fine`)
+
+| Source | FALSE | MISLEADING | MIXED | TRUE | UNVERIFIED |
+|--------|------:|-----------:|------:|-----:|-----------:|
+{fine_rows}
+{bench_line}
+
+{split_line}
+
 ### Source Breakdown (raw)
 
 | Source | Articles | Verdict profile |

@@ -70,13 +70,35 @@ CONCLUSION_MARKERS = [
 ]
 
 
-def extract_verdict_from_header(body_text: str) -> Optional[str]:
-    """Article's own tag line (3rd line of body_text). The page-wide SVG search
-    picked sidebar badges: 39 of 677 verdicts wrong (fixed Oct 2026)."""
+def header_tag_line(body_text: str, title: str = "") -> str:
+    """
+    The article's own tag line: the line just above the first copy of the
+    title (normally line 2). Falls back to line 2 when the title is not
+    found in the first 6 lines. (Brief B3: a fixed line number breaks as
+    soon as the site adds a menu line.)
+    """
     lines = body_text.split("\n") if body_text else []
-    head = lines[2] if len(lines) > 2 else ""
+    if title:
+        for i, line in enumerate(lines[:6]):
+            if i >= 1 and line.strip() == title.strip():
+                return lines[i - 1]
+    return lines[2] if len(lines) > 2 else ""
+
+
+def extract_verdict_from_header(body_text: str, title: str = "") -> Optional[str]:
+    """Article's own tag line. The page-wide SVG search picked sidebar
+    badges: 39 of 677 verdicts wrong (fixed Oct 2026)."""
+    head = header_tag_line(body_text, title)
     found = [v for v in ("मिथ्या सूचना", "भ्रामक सूचना", "सही सूचना", "अपुष्ट सूचना") if v in head]
     return found[0] if len(found) == 1 else None
+
+
+def is_explainer(body_text: str, title: str = "") -> bool:
+    """Explainers (tag "एक्सप्लेनर") explain a topic and check no claim.
+    A tag line that also carries "तथ्यजाँच" is a fact-check written in
+    explainer style (first seen 23 Nov 2026), so it keeps its verdict."""
+    head = header_tag_line(body_text, title)
+    return "एक्सप्लेनर" in head and "तथ्यजाँच" not in head
 
 
 def extract_verdict_from_svg(soup: BeautifulSoup) -> Optional[str]:

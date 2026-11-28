@@ -1,17 +1,21 @@
 # pipeline/normalizer.py
 # =============================================================================
-# Normalizes raw scraped articles into NepFakeV2Example records.
+# Normalizes raw scraped articles into NepFakeV2Example records (schema 2.0).
 #
-# Input:  RawArticle dicts from raw JSON files
-# Output: NepFakeV2Example dataclass instances
+# Input:  raw/<source>/<date>.json (never edited)
+# Output: NepFakeV2Example records, plus LAST_EXCLUSIONS (what was left out
+#         and why; written to data/excluded.csv by the exporter)
 #
-# Jobs:
-#   - Map raw verdict → label 0/1/2/-1
-#   - Convert raw date → ISO format
-#   - Assign example_id
-#   - Detect Devanagari script
-#   - Assign topic_category
-#   - Set source metadata
+# Per article:
+#   - verdict: NFC header tag / TechPana conclusion -> summary -> stored
+#   - hand-checked override (data_validation/reference_labels.csv), if any
+#   - label_fine and in_main_benchmark
+#   - claim_text (the claim, not the headline) and claim_source
+#   - evidence_text (no verdict words) and conclusion_text
+#   - stable example_id from the URL
+#   - date_published, date_precision, date_scraped
+#   - language, is_native_nepali, topic_category
+#   - external_evidence_urls without share buttons and self-links
 #
 # Usage:
 #   from pipeline.normalizer import normalize_article, normalize_all
@@ -22,72 +26,74 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
-from config.settings import is_devanagari, RAW_DIRS, SCHEMA_VERSION
+from config.settings import (RAW_DIRS, SCHEMA_VERSION, BENCHMARK_EXCLUDED_SOURCES,
+                             LABEL_FINE_TO_COARSE, LABELS)
 from schema.schema import NepFakeV2Example, make_example_id
 from schema.validator import validate_batch
-from pipeline.label_mapper import map_verdict
+from pipeline.label_mapper import map_verdict, map_verdict_fine
+from pipeline.claim_extractor import extract_claim
+from pipeline.evidence_cleaner import clean_evidence
+from pipeline.reference_labels import load_reference_labels, fine_label
+from pipeline.text_rules import devanagari_share
 from scrapers.techpana import (BS_MONTHS, parse_bs_date, extract_own_date,
                                is_factcheck_article, resolve_verdict)
-from scrapers.nepalfactcheck import extract_verdict_from_header
+from scrapers.nepalfactcheck import extract_verdict_from_header, is_explainer
+from utils.helpers import canonical_url
 
 logger = logging.getLogger("nepfakev2.normalizer")
+
+# Filled by normalize_all(): one dict per article that was left out
+#   {"source_name", "source_url", "reason", "date_scraped"}
+# Reasons: explainer, not_a_factcheck, verdict_unmappable, no_title_or_body,
+#          hand_checked_not_factcheck, validation_failed
+LAST_EXCLUSIONS: list[dict] = []
 
 
 # =============================================================================
 # DATE NORMALIZATION
 # =============================================================================
 
-def normalize_date(raw_date: str) -> str:
+def normalize_date_with_precision(raw_date: str) -> tuple[str, str]:
     """
-    Convert raw date string to ISO format YYYY-MM-DD.
+    ("YYYY-MM-DD", precision). precision is "day", "month", "year" or "".
 
-    Handles:
-        BS strings:  "भदौ ९, २०८३"          → "2026-08-25"
-        ISO strings: "2026-07-14T14:47:19"   → "2026-07-14"
-        Year only:   "2026"                   → "2026-01-01"
-        Empty:       ""                        → ""
-
-    Args:
-        raw_date: Raw date string from scraper
-
-    Returns:
-        ISO date string "YYYY-MM-DD" or "" if cannot parse
+    A year-only date becomes YYYY-01-01 with precision "year", so a time
+    split can tell it is not really 1 January (brief N9).
     """
     if not raw_date or not raw_date.strip():
-        return ""
-
+        return "", ""
     raw_date = raw_date.strip()
 
-    # ISO format — starts with digit and has dashes
     if raw_date[0].isdigit():
-        # Full ISO datetime: "2026-07-14T14:47:19+05:45"
-        if "T" in raw_date:
-            return raw_date[:10]
-        # ISO date: "2026-07-14"
+        if "T" in raw_date and re.match(r"^\d{4}-\d{2}-\d{2}T", raw_date):
+            return raw_date[:10], "day"
         if re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date):
-            return raw_date
-        # Year-month: "2026-08"
+            return raw_date, "day"
         if re.match(r"^\d{4}-\d{2}$", raw_date):
-            return f"{raw_date}-01"
-        # Year only: "2026"
+            return f"{raw_date}-01", "month"
         if re.match(r"^\d{4}$", raw_date):
-            return f"{raw_date}-01-01"
+            return f"{raw_date}-01-01", "year"
 
-    # BS date string — starts with Nepali month name
     for month in BS_MONTHS.keys():
         if raw_date.startswith(month):
             converted = parse_bs_date(raw_date)
             if converted:
-                return converted
+                return converted, "day"
             break
 
     logger.warning(f"Could not parse date: {raw_date}")
-    return ""
+    return "", ""
+
+
+def normalize_date(raw_date: str) -> str:
+    """ISO date only (kept for callers and tests from before 2.0)."""
+    return normalize_date_with_precision(raw_date)[0]
 
 
 # =============================================================================
-# TOPIC CATEGORY DETECTION
+# TOPIC CATEGORY DETECTION (keyword heuristic; metadata only, see DATASHEET)
 # =============================================================================
 
 TOPIC_KEYWORDS = {
@@ -124,205 +130,235 @@ TOPIC_KEYWORDS = {
 
 
 def detect_topic(title: str, body_text: str) -> str:
-    """
-    Detect topic category from article title and body.
-    Uses keyword matching — imperfect but good enough for metadata.
-
-    Args:
-        title:     Article headline
-        body_text: Article body text
-
-    Returns:
-        Topic string: "politics" / "health" / "technology" /
-                      "society" / "environment" / "economy" / "other"
-    """
+    """Keyword match on the title and the first 500 characters."""
     search_text = (title + " " + body_text[:500]).lower()
-
     scores = {}
     for topic, keywords in TOPIC_KEYWORDS.items():
         score = sum(1 for kw in keywords if kw.lower() in search_text)
         if score > 0:
             scores[topic] = score
-
     if not scores:
         return "other"
-
     return max(scores, key=scores.get)
+
+
+# =============================================================================
+# EXTERNAL LINKS
+# =============================================================================
+
+OWN_HOSTS = {"techpana.com", "nepalfactcheck.org"}
+OWN_ACCOUNTS = ("techpana", "nepalfactcheck", "cmrnepal")
+SHARE_PATTERNS = ("sharer", "/share?", "intent/tweet", "sharearticle", "/hashtag/",
+                  "whatsapp://", "mailto:")
+MAX_LINKS = 20
+
+
+def filter_external_links(links: list, source_url: str) -> list[str]:
+    """
+    Drop the outlet's own pages and social accounts, share buttons and
+    hashtag links; keep the order and at most MAX_LINKS. Before 2.0 the
+    first 5 links were kept, which were mostly the outlet's own Facebook /
+    Twitter / LinkedIn buttons.
+    """
+    out, seen = [], set()
+    for link in links or []:
+        if not isinstance(link, str) or not link.startswith("http"):
+            continue
+        host = urlparse(link).netloc.lower().removeprefix("www.")
+        low = link.lower()
+        if host in OWN_HOSTS or host.endswith(tuple("." + h for h in OWN_HOSTS)):
+            continue
+        if any(p in low for p in SHARE_PATTERNS):
+            continue
+        segments = [x.lstrip("@") for x in urlparse(low).path.strip("/").split("/")[:2]]
+        if any(acc in seg for acc in OWN_ACCOUNTS for seg in segments):
+            continue                     # the outlet's own social account
+                                         # (facebook.com/TechPanaNews, linkedin.com/in/cmrnepal)
+        key = low.rstrip("/")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(link)
+        if len(out) >= MAX_LINKS:
+            break
+    return out
 
 
 # =============================================================================
 # NORMALIZER
 # =============================================================================
 
-def normalize_article(
-    raw: dict,
-    sequence: int,
-) -> Optional[NepFakeV2Example]:
-    """
-    Normalize a single raw article dict into a NepFakeV2Example.
+def _exclude(exclusions, raw, reason):
+    if exclusions is not None:
+        exclusions.append({
+            "source_name": raw.get("source_name", ""),
+            "source_url": raw.get("source_url", ""),
+            "reason": reason,
+            "date_scraped": raw.get("date_scraped", ""),
+        })
+    return None
 
-    Unmappable verdicts are kept as label -1 (UNKNOWN) — not coerced.
-    The exporter decides whether to include or exclude -1 records.
+
+def normalize_article(raw: dict, references: Optional[dict] = None,
+                      exclusions: Optional[list] = None) -> Optional[NepFakeV2Example]:
+    """
+    Normalize one raw article. Returns None when the article is left out;
+    the reason is appended to `exclusions` (if given).
 
     Args:
-        raw:      Raw article dict from JSON file
-        sequence: Sequential number for example_id generation
-
-    Returns:
-        NepFakeV2Example if normalization succeeds
-        None if article should be skipped (no title or body)
+        raw:        raw article dict from raw/<source>/<date>.json
+        references: {canonical_url: hand-checked label} (see reference_labels)
+        exclusions: list that collects the reason for each left-out article
     """
+    references = references or {}
     source_name = raw.get("source_name", "")
     source_url = raw.get("source_url", "")
-    title = raw.get("title", "").strip()
-    body_text = raw.get("body_text", "").strip()
-    raw_verdict = raw.get("raw_verdict_text", "").strip()
+    title = (raw.get("title") or "").strip()
+    body_text = (raw.get("body_text") or "").strip()
+    raw_verdict = (raw.get("raw_verdict_text") or "").strip()
     raw_date = raw.get("date_published", "")
+    annotator_notes = raw.get("annotator_notes", "") or ""
 
-    # --- Oct 2026 repairs, re-derived from saved text (raw files unchanged) ---
-    is_explainer = False
+    if not title or not body_text:
+        logger.warning(f"Skipping, no title or body: {source_url}")
+        return _exclude(exclusions, raw, "no_title_or_body")
+
+    # --- Verdict (raw files unchanged; re-derived from the saved text) ---
     label_source = "stored"
     if source_name == "nepalfactcheck":
-        # Verdict from the article's own header tag. The old scraper read
-        # sidebar badges: 39 of 677 verdicts wrong.
-        header_verdict = extract_verdict_from_header(body_text)
+        if is_explainer(body_text, title):
+            return _exclude(exclusions, raw, "explainer")
+        header_verdict = extract_verdict_from_header(body_text, title)
         if header_verdict:
             raw_verdict, label_source = header_verdict, "nfc_header"
-        # Explainers (header tag "एक्सप्लेनर") explain a topic; they do not
-        # check a claim, so they get no verdict label.
-        head = body_text.split("\n")[2] if body_text.count("\n") >= 2 else ""
-        is_explainer = "एक्सप्लेनर" in head
     elif source_name == "techpana":
-        # Not a fact-check (old scraper never applied its filter)
         if not is_factcheck_article(title, body_text, source_url):
-            logger.info(f"Skipping — not a fact-check: {source_url}")
-            return None
-        # Date from the article's own date line. The old scraper often took
-        # a sidebar date: 145 of 275 dates were wrong.
+            return _exclude(exclusions, raw, "not_a_factcheck")
         raw_date = extract_own_date(body_text) or raw_date
-        # Same rule as the scraper (scrapers/techpana.py resolve_verdict):
-        # conclusion, then lead summary, then the stored value. The stored
-        # value in files before 12 Oct 2026 often came from sidebar badges
-        # (e.g. claims concluded "साँचो हो" were stored as false).
         raw_verdict, label_source = resolve_verdict(body_text, raw_verdict)
-    annotator_notes = raw.get("annotator_notes", "")
 
-    # --- Skip if no title or body ---
-    if not title or not body_text:
-        logger.warning(f"Skipping — no title or body: {source_url}")
-        return None
-
-    # --- Map verdict to label ---
-    # -1 (UNKNOWN) is preserved as-is — not coerced to any other label
     verdict_label, verdict_label_text = map_verdict(raw_verdict)
-    if is_explainer:
-        verdict_label, verdict_label_text = -1, "UNKNOWN"
-        annotator_notes = (annotator_notes + " | " if annotator_notes else "") + "explainer_not_factcheck"
+    if verdict_label == -1:
+        label_fine = ""
+    elif label_source == "conclusion_mixed":
+        label_fine = "MIXED"
+    else:
+        label_fine = map_verdict_fine(raw_verdict)
 
-    if verdict_label == -1 and not is_explainer:
+    # --- Hand-checked override (only once the reference file exists) ---
+    reference = references.get(canonical_url(source_url))
+    if reference == "NOT_A_FACTCHECK":
+        return _exclude(exclusions, raw, "hand_checked_not_factcheck")
+    if reference:
+        label_fine = fine_label(reference)
+        verdict_label = LABEL_FINE_TO_COARSE[label_fine]
+        verdict_label_text = LABELS[verdict_label]
+        label_source = "hand_checked"
+
+    if verdict_label == -1:
         logger.warning(f"Unmappable verdict '{raw_verdict}': {source_url}")
-        if annotator_notes:
-            annotator_notes += " | verdict_unmappable"
-        else:
-            annotator_notes = "verdict_unmappable"
+        return _exclude(exclusions, raw, "verdict_unmappable")
 
-    # --- Normalize date ---
-    date_published = normalize_date(raw_date)
+    # --- Text fields ---
+    evidence_text, conclusion_text = clean_evidence(source_name, title, body_text)
+    claim_text, claim_source = extract_claim(source_name, title, evidence_text, conclusion_text)
 
-    # --- Generate example ID ---
-    example_id = make_example_id(date_published, sequence)
+    share = devanagari_share(title + " " + evidence_text[:2000])
+    language = "ne" if share >= 0.5 else "en"
 
-    # --- Detect Devanagari ---
-    is_native_nepali = is_devanagari(title) or is_devanagari(body_text[:100])
+    in_main_benchmark = (
+        label_fine in ("FALSE", "MISLEADING")
+        and label_source not in BENCHMARK_EXCLUDED_SOURCES
+        and language == "ne"
+    )
 
-    # --- Detect topic ---
-    topic_category = detect_topic(title, body_text)
+    date_published, date_precision = normalize_date_with_precision(raw_date)
 
-    # --- Build example ---
-    example = NepFakeV2Example(
-        example_id=example_id,
-        claim_text=title,
+    return NepFakeV2Example(
+        example_id=make_example_id(source_name, source_url),
+        claim_text=claim_text,
+        claim_source=claim_source,
+        headline=title,
         verdict_label=verdict_label,
         verdict_label_text=verdict_label_text,
-        evidence_text=body_text,
-        evidence_sentences=[],
-        external_evidence_urls=raw.get("external_links", [])[:5],
+        label_fine=label_fine,
+        label_source=label_source,
+        in_main_benchmark=in_main_benchmark,
+        evidence_text=evidence_text,
+        conclusion_text=conclusion_text,
+        external_evidence_urls=filter_external_links(raw.get("external_links", []), source_url),
         source_name=source_name,
         source_type="fact_checker",
         source_url=source_url,
-        source_outlet="",
         date_published=date_published,
-        is_native_nepali=is_native_nepali,
+        date_precision=date_precision,
+        date_scraped=raw.get("date_scraped", "") or "",
+        language=language,
+        is_native_nepali=(language == "ne"),
         label_basis="fact_checker_verdict",
-        label_source=label_source,
-        topic_category=topic_category,
+        topic_category=detect_topic(title, evidence_text),
         annotator_notes=annotator_notes,
-        split="",
         schema_version=SCHEMA_VERSION,
     )
 
-    return example
 
-
-def normalize_all() -> list[NepFakeV2Example]:
-    """
-    Normalize all raw articles from all sources.
-    Reads all JSON files from raw/ directories.
-
-    Returns:
-        List of NepFakeV2Example records (including -1 UNKNOWN labels)
-    """
-    all_examples = []
-    sequence = 1
-
-    for source_name, raw_dir in RAW_DIRS.items():
+def load_raw(raw_dirs: dict = None) -> list[dict]:
+    """All raw records, source by source, files in name (= date) order."""
+    out = []
+    for source_name, raw_dir in (raw_dirs or RAW_DIRS).items():
         raw_dir = Path(raw_dir)
         if not raw_dir.exists():
             continue
-
-        json_files = sorted(raw_dir.glob("*.json"))
-        if not json_files:
-            continue
-
-        source_articles = []
-        for json_file in json_files:
+        for json_file in sorted(raw_dir.glob("*.json")):
             try:
                 with open(json_file, "r", encoding="utf-8") as f:
-                    articles = json.load(f)
-                source_articles.extend(articles)
+                    records = json.load(f)
             except (json.JSONDecodeError, IOError) as e:
                 logger.error(f"Error reading {json_file}: {e}")
+                continue
+            for r in records:
+                r = dict(r)
+                r.setdefault("source_name", source_name)
+                # The file date is the snapshot date when the record lacks one
+                r["date_scraped"] = r.get("date_scraped") or json_file.stem
+                out.append(r)
+    return out
 
-        logger.info(
-            f"{source_name}: loaded {len(source_articles)} raw articles"
-        )
 
-        for raw in source_articles:
-            example = normalize_article(raw, sequence)
-            if example:
-                all_examples.append(example)
-                sequence += 1
+def normalize_all(references: Optional[dict] = None) -> list[NepFakeV2Example]:
+    """
+    Normalize every raw article, validate, and record what was left out in
+    LAST_EXCLUSIONS. Several snapshots of one URL are all returned; the
+    deduplicator keeps the newest.
+    """
+    references = load_reference_labels() if references is None else references
+    exclusions: list[dict] = []
+    examples = []
+    for raw in load_raw(RAW_DIRS):
+        ex = normalize_article(raw, references, exclusions)
+        if ex is not None:
+            examples.append(ex)
 
-        logger.info(
-            f"{source_name}: normalized {len(all_examples)} examples so far"
-        )
+    validation = validate_batch(examples)
+    for example, result in validation["invalid"]:
+        logger.warning(f"  Invalid: {result}")
+        exclusions.append({"source_name": example.source_name,
+                           "source_url": example.source_url,
+                           "reason": "validation_failed",
+                           "date_scraped": example.date_scraped})
 
-    logger.info(f"Total normalized: {len(all_examples)} examples")
+    # An exclusion of an older snapshot does not count when a newer snapshot
+    # of the same URL is kept (or excluded again): one entry per URL.
+    kept_urls = {canonical_url(e.source_url) for e in validation["valid"]}
+    latest = {}
+    for x in exclusions:
+        key = canonical_url(x["source_url"])
+        if key in kept_urls:
+            continue
+        if key not in latest or x["date_scraped"] >= latest[key]["date_scraped"]:
+            latest[key] = x
+    LAST_EXCLUSIONS[:] = sorted(latest.values(),
+                                key=lambda x: (x["source_name"], x["source_url"]))
 
-    # Validate all examples — drop hard failures before pipeline continues
-    validation = validate_batch(all_examples)
-    if validation["invalid"]:
-        logger.warning(
-            f"Validation: {validation['stats']['invalid']} invalid records dropped, "
-            f"{validation['stats']['valid']} passed "
-            f"({validation['stats']['pass_rate']} pass rate)"
-        )
-        for example, result in validation["invalid"]:
-            logger.warning(f"  Invalid: {result}")
-    else:
-        logger.info(
-            f"Validation passed: {validation['stats']['valid']} records "
-            f"({validation['stats']['pass_rate']} pass rate)"
-        )
-
+    logger.info(f"normalized {len(validation['valid'])}, excluded {len(LAST_EXCLUSIONS)}")
     return validation["valid"]

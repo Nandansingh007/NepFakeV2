@@ -64,10 +64,29 @@ def test_source_name_matches_dir(source):
         warnings.warn(f"{name}: {wrong} articles with wrong source_name")
 
 
-def test_no_duplicate_urls(source):
-    name, articles = source
-    urls = [a["source_url"] for a in articles]
-    assert len(urls) == len(set(urls)), f"{name}: {len(urls) - len(set(urls))} duplicate URLs"
+@pytest.mark.parametrize("name", list(RAW_DIRS))
+def test_no_duplicate_urls_within_a_file(name):
+    # 2.0: the same URL may appear in two files (a later snapshot, e.g. the
+    # Phase 2 full re-scrape; dedup keeps the newest). Within one file it
+    # must not (save_raw keeps the newest record per URL).
+    from utils.helpers import canonical_url
+    bad = []
+    for f in sorted(Path(RAW_DIRS[name]).glob("*.json")):
+        urls = [canonical_url(a["source_url"]) for a in json.loads(f.read_text(encoding="utf-8"))]
+        if len(urls) != len(set(urls)):
+            bad.append((f.name, len(urls) - len(set(urls))))
+    assert not bad, f"{name}: duplicate URLs inside files {bad}"
+
+
+@pytest.mark.parametrize("name", list(RAW_DIRS))
+def test_snapshot_date_matches_file_name(name):
+    # date_scraped is what dedup uses to find the newest snapshot
+    bad = []
+    for f in sorted(Path(RAW_DIRS[name]).glob("*.json")):
+        for a in json.loads(f.read_text(encoding="utf-8")):
+            if a.get("date_scraped") != f.stem:
+                bad.append((f.name, a["source_url"], a.get("date_scraped")))
+    assert not bad, bad[:5]
 
 
 def test_empty_verdict_rate(source):

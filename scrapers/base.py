@@ -19,6 +19,7 @@
 # =============================================================================
 
 import json
+import os
 import time
 import logging
 from abc import ABC, abstractmethod
@@ -137,6 +138,12 @@ class BaseScraper(ABC):
         Returns None if first run — scrape everything.
         Returns ISO date string "YYYY-MM-DD" if previous run exists.
         """
+        # Full re-scrape (Phase 2): ignore the cutoff and fetch every article.
+        # Set by `python -m pipeline.collector --full` or the workflow input.
+        if os.environ.get("NEPFAKE_FULL_RESCRAPE") == "1":
+            self.logger.info("NEPFAKE_FULL_RESCRAPE=1 — full re-scrape, no cutoff")
+            return None
+
         if not LAST_RUN_FILE.exists():
             self.logger.info("No last_run.json — first run, scraping all")
             return None
@@ -277,13 +284,14 @@ class BaseScraper(ABC):
 
         new_records = [self._article_to_dict(a) for a in articles]
 
-        all_records = existing + new_records
-        seen_urls = set()
-        deduplicated = []
-        for record in all_records:
-            if record["source_url"] not in seen_urls:
-                seen_urls.add(record["source_url"])
-                deduplicated.append(record)
+        # One record per article in a day's file. A record scraped again on
+        # the same day REPLACES the earlier one (newest wins, as in the
+        # dataset's dedup); until v2.0 the earlier record was kept.
+        from utils.helpers import canonical_url
+        by_url = {}
+        for record in existing + new_records:
+            by_url[canonical_url(record["source_url"])] = record
+        deduplicated = list(by_url.values())
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(deduplicated, f, ensure_ascii=False, indent=2)

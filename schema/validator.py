@@ -11,7 +11,12 @@
 from dataclasses import dataclass
 from typing import List
 from schema.schema import NepFakeV2Example, RawArticle
-from config.settings import LABELS, LABEL_SOURCES, is_devanagari
+from config.settings import (LABELS, LABEL_SOURCES, LABELS_FINE, LABEL_FINE_TO_COARSE,
+                             BENCHMARK_EXCLUDED_SOURCES, CLAIM_SOURCES, is_devanagari)
+
+SPLITS = {"", "train", "dev", "test", "new"}
+DATE_PRECISIONS = {"", "day", "month", "year"}
+LANGUAGES = {"", "ne", "en"}
 
 
 # =============================================================================
@@ -170,17 +175,59 @@ def validate_example(example: NepFakeV2Example) -> ValidationResult:
     elif not example.label_source:
         warnings.append("label_source is empty")
 
-    # --- is_native_nepali consistency ---
-    if example.is_native_nepali and not is_devanagari(example.claim_text):
-        warnings.append("is_native_nepali=True but no Devanagari found in claim_text")
+    # --- label_fine (schema 2.0) ---
+    # Empty is allowed (hand-built records, older files) with a warning.
+    # Otherwise it must be known and agree with the coarse label.
+    if not example.label_fine:
+        warnings.append("label_fine is empty")
+    elif example.label_fine not in LABELS_FINE:
+        errors.append(f"label_fine invalid: {example.label_fine}")
+    elif LABEL_FINE_TO_COARSE[example.label_fine] != example.verdict_label:
+        errors.append(
+            f"label_fine {example.label_fine} does not match "
+            f"verdict_label {example.verdict_label}")
+
+    # --- in_main_benchmark consistency ---
+    if example.in_main_benchmark:
+        if example.label_fine not in ("FALSE", "MISLEADING"):
+            errors.append(
+                f"in_main_benchmark=True but label_fine is '{example.label_fine}' "
+                f"(main task is FALSE vs MISLEADING)")
+        if example.label_source in BENCHMARK_EXCLUDED_SOURCES:
+            errors.append(
+                f"in_main_benchmark=True but label_source is "
+                f"'{example.label_source}' (excluded from the benchmark)")
+
+    if example.in_main_benchmark and example.language and example.language != "ne":
+        errors.append(
+            f"in_main_benchmark=True but language is '{example.language}' "
+            f"(the main benchmark is Nepali only)")
+
+    # --- text provenance / language / dates (schema 2.0) ---
+    if example.claim_source and example.claim_source not in CLAIM_SOURCES:
+        errors.append(f"claim_source invalid: {example.claim_source}")
+    if example.language not in LANGUAGES:
+        errors.append(f"language invalid: {example.language}")
+    if example.language and example.is_native_nepali != (example.language == "ne"):
+        errors.append("is_native_nepali does not match language")
+    if example.date_precision not in DATE_PRECISIONS:
+        errors.append(f"date_precision invalid: {example.date_precision}")
+    if example.date_published and not example.date_precision:
+        warnings.append("date_precision is empty")
+    if (example.date_published and example.date_scraped
+            and example.date_published > example.date_scraped):
+        # A publication date after the scrape is a parsing error (brief N8)
+        errors.append(
+            f"date_published {example.date_published} is after "
+            f"date_scraped {example.date_scraped}")
+    if example.split not in SPLITS:
+        errors.append(f"split invalid: {example.split}")
+    if example.split_random not in SPLITS:
+        errors.append(f"split_random invalid: {example.split_random}")
 
     # --- schema_version ---
     if not example.schema_version:
         errors.append("schema_version is empty")
-
-    # --- warnings for missing optional fields ---
-    if not example.evidence_sentences:
-        warnings.append("evidence_sentences is empty")
 
     if not example.topic_category or example.topic_category == "other":
         warnings.append("topic_category is 'other' — may need manual review")

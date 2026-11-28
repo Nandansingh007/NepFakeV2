@@ -3,7 +3,7 @@
 [![NepFakeV2 Pipeline](https://github.com/Nandansingh007/NepFakeV2/actions/workflows/weekly_scrape.yml/badge.svg)](https://github.com/Nandansingh007/NepFakeV2/actions/workflows/weekly_scrape.yml)
 ![Language](https://img.shields.io/badge/language-Nepali-red)
 ![License](https://img.shields.io/badge/license-CC%20BY%204.0-green)
-![Schema](https://img.shields.io/badge/schema-v1.1-blue)
+![Schema](https://img.shields.io/badge/schema-v2.0-blue)
 
 **Live, auto-updating data infrastructure for Nepali fact-checking and misinformation research.**
 
@@ -32,7 +32,7 @@ import pandas as pd
 df = pd.read_csv(
     "https://raw.githubusercontent.com/Nandansingh007/NepFakeV2/main/data/nepfakev2.csv"
 )
-print(df[["claim_text", "verdict_label", "verdict_label_text", "source_name"]].head())
+print(df[["claim_text", "label_fine", "in_main_benchmark", "split", "source_name"]].head())
 ```
 
 Also available on Hugging Face: [`Nandan007/NepFakeV2`](https://huggingface.co/datasets/Nandan007/NepFakeV2) (normalized layer only).
@@ -73,6 +73,26 @@ Raw verdicts are kept in the original Nepali (e.g. भ्रामक, मिथ
 | 1 | FALSE_MISLEADING | Debunked — false or misleading content |
 | 2 | UNVERIFIED | Cannot be confirmed or denied |
 
+**Fine labels (`label_fine`, schema 2.0).** The coarse label above is kept unchanged. `label_fine` splits FALSE_MISLEADING:
+
+| `label_fine` | Nepali verdict | Meaning | Coarse label |
+|---|---|---|---|
+| FALSE | मिथ्या (also झुटो, असत्य) | The claim is fabricated or untrue | 1 |
+| MISLEADING | भ्रामक (also भ्रम, गलत) | Real content in a wrong context, or a distorted claim | 1 |
+| MIXED | both मिथ्या and भ्रामक | The TechPana conclusion names both; no single fine label | 1 |
+| TRUE | सही (also साँचो, सत्य) | The claim is accurate | 0 |
+| UNVERIFIED | अपुष्ट | Could not be confirmed or refuted | 2 |
+
+**Main task: FALSE vs MISLEADING.** Use rows with `in_main_benchmark == True`: fine label FALSE or MISLEADING, verdict read from the article text (or hand-checked), article in Nepali. MIXED rows, badge-only rows (`label_source == "stored"`) and the English rows are left out.
+
+**Model inputs: `claim_text` and `evidence_text` only.** `headline` and `conclusion_text` state the verdict. A word counter that counts मिथ्या vs भ्रामक scored 90% on the old `evidence_text`; on the 2.0 columns it scores the majority baseline (62%). Report results on both splits: `split` (time) and `split_random` (random by claim group). The FALSE/MISLEADING balance changes a lot between years (train 61% FALSE, test 21% FALSE), so the time split alone mostly measures that shift.
+
+```python
+main = df[df["in_main_benchmark"]]
+train = main[main["split"] == "train"]          # or split_random
+X, y = train["claim_text"] + " " + train["evidence_text"], train["label_fine"]
+```
+
 See [Limitations](#limitations) on label imbalance.
 
 ---
@@ -90,19 +110,33 @@ See [Limitations](#limitations) on label imbalance.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `example_id` | str | Unique ID — `NF2_YYYYMMDD_NNNN` |
-| `claim_text` | str | Article headline (the claim) |
-| `verdict_label` | int | 0 / 1 / 2 |
+| `example_id` | str | Stable ID from the URL: `NF2_tp_<article number>` (TechPana) or `NF2_nfc_<10 hex>` (NepalFactCheck). Old IDs (`NF2_YYYYMMDD_NNNN`): `data/id_map_v1_to_v2.csv` |
+| `claim_text` | str | The claim being checked, taken from the article (lead sentence, quoted claim or claim box). Verdict words removed. See `claim_source` |
+| `claim_source` | str | Where `claim_text` came from: `claim_box`, `lead_quote`, `lead`, `claim_section`, or `headline` (fallback, prefix and verdict words removed) |
+| `headline` | str | The fact-checker's headline. **Usually states the verdict: not a model input** |
+| `verdict_label` | int | 0 / 1 / 2 (coarse label) |
 | `verdict_label_text` | str | REAL / FALSE_MISLEADING / UNVERIFIED |
-| `evidence_text` | str | Full fact-check article body |
+| `label_fine` | str | FALSE / MISLEADING / MIXED / TRUE / UNVERIFIED (see Labels) |
+| `label_source` | str | Where the verdict was read: `nfc_header`, `conclusion`, `conclusion_mixed`, `summary`, `stored` (scraper's badge only), `hand_checked` (a person read the article) |
+| `in_main_benchmark` | bool | True if the row belongs to the main FALSE-vs-MISLEADING task |
+| `evidence_text` | str | Article body without header, conclusion, footer, and without any sentence that states the verdict |
+| `conclusion_text` | str | The fact-checker's conclusion. **States the verdict: not a model input** |
+| `external_evidence_urls` | str | Links in the article, `" \| "`-separated, without share buttons and the outlet's own pages |
 | `source_name` | str | techpana / nepalfactcheck |
+| `source_type` | str | fact_checker |
 | `source_url` | str | Original article URL |
 | `date_published` | str | ISO date YYYY-MM-DD |
-| `is_native_nepali` | bool | True if Devanagari script detected |
-| `topic_category` | str | politics / health / technology / society / environment / economy / other |
-| `label_source` | str | Where the verdict was read: `nfc_header` (NepalFactCheck header tag), `conclusion` (TechPana conclusion names one verdict), `conclusion_mixed` (conclusion names both मिथ्या and भ्रामक), `summary` (TechPana lead summary), `stored` (scraper's stored value, e.g. the image badge) |
-| `annotator_notes` | str | Edge case flags — empty if clean |
-| `schema_version` | str | 1.1 (1.1 added `label_source`) |
+| `date_precision` | str | day / month / year (a year-only date is stored as YYYY-01-01) |
+| `date_scraped` | str | Date of the snapshot this row was built from |
+| `language` | str | `ne` or `en` (share of Devanagari letters) |
+| `is_native_nepali` | bool | `language == "ne"` |
+| `label_basis` | str | fact_checker_verdict |
+| `topic_category` | str | Keyword heuristic: politics / health / technology / society / environment / economy / other |
+| `annotator_notes` | str | Edge-case flags, empty if clean |
+| `claim_group_id` | str | Rows about the same claim (often both outlets checking one viral post) share this ID |
+| `split` | str | Time split: train / dev / test (`new` for rows added after the freeze) |
+| `split_random` | str | Random control split by claim group |
+| `schema_version` | str | 2.0 |
 
 ---
 
@@ -150,21 +184,32 @@ flowchart LR
 | | |
 |---|---|
 | 🗃 Raw articles scraped | **966** |
-| ✅ Normalized examples | **939** |
+| ✅ Normalized examples | **940** |
 | 📅 Date range | 2020-03-13 → 2026-11-20 |
-| 🕒 Last updated | 2026-11-23 07:28 UTC |
+| 🕒 Last updated | 2026-11-28 02:10 UTC |
 
 **Last run:** 2026-11-23 &nbsp;|&nbsp; ✓ TechPana: +1 new &nbsp;|&nbsp; ✓ NepalFactCheck: +4 new
-
+> **26 articles left out** (explainer 22, not_a_factcheck 4). Each is listed with its reason in `data/excluded.csv`.
 
 ### Label Distribution (normalized)
 
 | Label | Count | % |
 |-------|------:|--:|
 | REAL                 |    17 |   1.8% |
-| FALSE_MISLEADING     |   896 |  95.4% |
+| FALSE_MISLEADING     |   897 |  95.4% |
 | UNVERIFIED           |    26 |   2.8% |
 | UNKNOWN              |     0 |   0.0% |
+
+### Fine Labels (normalized, `label_fine`)
+
+| Source | FALSE | MISLEADING | MIXED | TRUE | UNVERIFIED |
+|--------|------:|-----------:|------:|-----:|-----------:|
+| NepalFactCheck   |  273 |  364 |    0 |    8 |   21 |
+| TechPana         |   63 |  174 |   23 |    9 |    5 |
+
+Main benchmark (FALSE vs MISLEADING, `in_main_benchmark`): **830** rows (319 FALSE, 511 MISLEADING)
+
+Splits (provisional until the freeze): time `split` test 390, train 358, dev 192; random control `split_random` train 666, test 173, dev 101
 
 ### Source Breakdown (raw)
 
@@ -173,10 +218,12 @@ flowchart LR
 | TechPana         |  278 | भ्रामक: 56%  मिथ्या: 41%  अपुष्ट: 2%  सही: 1%  unmapped: 0%  ⚠ 1 unmapped |
 | NepalFactCheck   |  688 | भ्रामक: 53%  मिथ्या: 34%  सही: 9%  अपुष्ट: 3% |
 
-Nepali script coverage: **99.8%**
+Nepali script coverage: **99.4%**
 <!-- STATS_END -->
 
 ## Data corrections
+
+**2026-11-23 (schema 2.0).** No verdict label changed. What changed: stable URL-based IDs (old ones in `data/id_map_v1_to_v2.csv`); `claim_text` is now the claim from the article, not the headline; `evidence_text` no longer contains the verdict; new columns `label_fine`, `in_main_benchmark`, `claim_source`, `headline`, `conclusion_text`, `date_precision`, `date_scraped`, `language`, `claim_group_id`, `split_random`; the always-empty `evidence_sentences` and `source_outlet` are removed; left-out articles are listed in `data/excluded.csv`. Full list: [CHANGELOG.md](CHANGELOG.md) and [DATASHEET.md](DATASHEET.md).
 
 **2026-11-22 (schema 1.1, commit 50f5c7f).** The TechPana scraper read the image badge before the fact-checker's conclusion, while the normalizer did the reverse, so 54 raw TechPana verdicts disagreed with the dataset (all already corrected in `data/`). Both now use one rule: the conclusion box, then the lead summary, then the stored badge. A new `label_source` column records which one was used.
 
@@ -187,7 +234,7 @@ Nepali script coverage: **99.8%**
 | "गलत" (wrong) now counts as misleading, not false | TechPana conclusions | No change to the 3-class label (both are FALSE_MISLEADING) |
 | `stats.json` schema version was hardcoded as 1.0 | stats.json | Now taken from the code (1.1) |
 
-Example IDs and row count (938) are unchanged. `stored` rows (46) still carry the scraper's badge, not a verdict read from the text; treat them as less reliable. 19 NepalFactCheck explainers are excluded in total (17 at the time of the 2026-10-11 audit).
+**2026-11-23 (schema 2.0).** No verdict label changed. What changed: stable URL-based IDs (old ones in `data/id_map_v1_to_v2.csv`); `claim_text` is now the claim from the article, not the headline; `evidence_text` no longer contains the verdict; new columns `label_fine`, `in_main_benchmark`, `claim_source`, `headline`, `conclusion_text`, `date_precision`, `date_scraped`, `language`, `claim_group_id`, `split_random`; the always-empty `evidence_sentences` and `source_outlet` are removed; left-out articles are listed in `data/excluded.csv`; one NepalFactCheck article whose tag line carries both तथ्यजाँच (fact-check) and एक्सप्लेनर (explainer) is now kept with its verdict; the explainer rule had dropped it from the 2026-11-23 weekly data (`ai-generated-false-videos-of-prime-minister-balen-and-other-top-officials`, FALSE). Full list: [CHANGELOG.md](CHANGELOG.md) and [DATASHEET.md](DATASHEET.md).
 
 **2026-10-11 (commits 770f96f, 8a37091).** An audit against each article's own text found five scraper errors. The raw layer is unchanged; the normalized layer now rebuilds labels from the saved article text.
 
@@ -206,22 +253,42 @@ Normalized examples went from 952 to 931 on the same raw data. If you used an ea
 ## Limitations
 
 - **Label imbalance** — fact-checkers publish mostly debunks by design, so 90%+ of normalized examples are FALSE_MISLEADING. This reflects the source distribution, not a collection error. Researchers needing label balance can supplement with a verified news source using the provided scraper base class.
-- **`claim_text` is the article headline** — not an atomically extracted claim.
-- **Cross-source duplicates are kept intentionally** — the same claim may be fact-checked independently by both sources. These records are preserved as separate observations with their original provenance, since they represent independent verifications. Deduplication in the pipeline is URL-based only; claim-level deduplication or clustering can be performed as a downstream task.
+- **`claim_text` is extracted by rules**, not by hand: 94% come from the article's own lead or claim box, 6% from the cleaned headline (`claim_source`). A 50-claim hand check is planned; until then treat `claim_source == "headline"` rows as weaker.
+- **Claim groups are a heuristic** (shared rare words within 30 days). The known cross-outlet pairs are grouped; some unrelated election claims are grouped too (one group has 38 rows), which is the safe direction.
+- **Splits are provisional** until they are frozen in `data/splits_v2.0.csv` (after the full re-scrape). Do not report numbers on provisional splits.
+- **Cross-source duplicates are kept intentionally** — the same claim may be fact-checked independently by both sources. These records are preserved as separate observations with their original provenance, since they represent independent verifications. Deduplication is URL-based (the newest snapshot of a URL wins). Rows about the same claim share `claim_group_id`, and the splits never separate a group.
 - **TechPana uses Cloudflare** — TechPana blocks datacenter IPs and is scraped via FlareSolverr in CI. See `.github/workflows/weekly_scrape.yml`.
+
+---
+
+## Versions and how to report results
+
+- **Live data** (`default` config, `main`): grows every week. Every weekly push is tagged `run-YYYY-MM-DD` here and on GitHub. Do not report benchmark scores on it.
+- **Benchmark `v2.0`**: frozen splits, released once (planned after the full re-scrape and the hand check). After the release: `load_dataset("Nandan007/NepFakeV2", "benchmark-v2.0", revision="v2.0")`, plus `benchmark-v2.0-random` for the control split. Until then those configs do not exist.
+- **Every published score names the release and the split**, e.g. "NepFakeV2 v2.0, time test split". Official metric: macro-F1 over FALSE and MISLEADING on the time test split; also report the random test split and the majority baseline. Scorer: `python -m pipeline.evaluate predictions.csv`.
+- **Cite the tag** (`v2.0`, or a `run-` tag for live data), not a download date.
+- Rows added after the freeze have `split = "new"`. You may split them as you like; we recommend splitting by `claim_group_id`, dropping new rows whose `claim_group_id` is also in v2.0 if you train on v2.0, and reporting the run tag and the `date_published` range you used.
+- When a new version comes out, and everything above in detail: [VERSIONING.md](VERSIONING.md).
+
+## Personal and sensitive information
+
+Rows quote public fact-checks. They name public figures (mostly politicians) and link to the social-media posts and accounts that spread a claim, some of them private people. Do not use the data to profile or target anyone named or linked. To have a row removed, open an issue on GitHub with its `source_url`.
 
 ---
 
 ## Citation
 
+Cite the release tag you used (`v2.0`), not the download date. Metadata: [CITATION.cff](CITATION.cff).
+
 ```bibtex
 @dataset{singh2026nepfakev2,
   author    = {Singh, Nandan},
-  title     = {NepFakeV2: Live Auto-Updating Data Infrastructure for Nepali Fact-Checking and Misinformation Research},
+  title     = {NepFakeV2: A Live, auto-updating Dataset for Nepali Misinformation Detection},
+  version   = {v2.0},
   year      = {2026},
   publisher = {GitHub},
   url       = {https://github.com/Nandansingh007/NepFakeV2},
-  note      = {Schema v1.1. Auto-updated weekly. Cite the collection date of the snapshot you used.}
+  note      = {Benchmark release v2.0. For live data, give the run-YYYY-MM-DD tag instead.}
 }
 ```
 
@@ -231,6 +298,8 @@ Normalized examples went from 952 to 931 on the same raw data. If you used an ea
 
 - **Data** (`data/`, `raw/`): [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - **Code**: [MIT](LICENSE)
+
+The CC BY 4.0 licence covers the labels, the metadata and the dataset's structure. The article text in `claim_text`, `evidence_text`, `headline` and `conclusion_text` is quoted from TechPana and NepalFactCheck, who keep its copyright; every row links to the original article. Rights holders can ask for removal through a GitHub issue.
 
 ---
 

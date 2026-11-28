@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '15 0 * * 1'  # weekly
   workflow_dispatch:
+    inputs:
+      full_rescrape:
+        description: "Re-scrape every article, ignoring last_run.json (Phase 2)"
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -48,6 +53,9 @@ jobs:
       # Without it, collector.py skips its built-in Hugging Face push.
       # The push now happens in its own step below, only after the tests pass.
       - name: Run collector (scrape + normalize, no Hugging Face push)
+        env:
+          # "1" only when started by hand with full_rescrape ticked
+          NEPFAKE_FULL_RESCRAPE: ${{ github.event.inputs.full_rescrape == 'true' && '1' || '0' }}
         run: |
           python -m pipeline.collector
 
@@ -61,7 +69,7 @@ jobs:
         run: |
           git config --global user.name "NepFakeV2 Bot"
           git config --global user.email "nandan.singhs007@gmail.com"
-          git add raw/ data/ README.md
+          git add raw/ data/ README.md README_HF.md
           if git diff --staged --quiet; then
             echo "No new articles — skipping commit"
           else
@@ -76,6 +84,25 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python -c "import sys; from pipeline.hf_push import push_to_huggingface; sys.exit(0 if push_to_huggingface() else 1)"
+
+      # Date tag for this run, on GitHub and on Hugging Face (VERSIONING.md).
+      # Runs only if the commit and the Hub push above succeeded, so a tag
+      # always names data that is really on both. A second run on the same
+      # day keeps the first tag. Needs `permissions: contents: write` (top of
+      # this file) for the git tag, and HF_TOKEN with write access.
+      - name: Tag this run (run-YYYY-MM-DD)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          TAG=$(python -m pipeline.versioning run-tag-name)
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists on GitHub, keeping it"
+          else
+            git tag -a "$TAG" -m "Weekly data run $TAG"
+            git push origin "$TAG"
+          fi
+          python -m pipeline.versioning hf-tag "$TAG"
 
       # If the tests failed, keep this week's scrape so it can be inspected
       # (it was not committed).

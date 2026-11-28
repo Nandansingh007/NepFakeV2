@@ -34,6 +34,26 @@ def normalize_url(url: str) -> str:
         return url
 
 
+def canonical_url(url: str) -> str:
+    """
+    One spelling per article, used for identity (example_id) and dedup.
+    Stronger than normalize_url(): also drops "www.", lower-cases the host,
+    ignores http vs https and a trailing slash.
+
+        http://www.NepalFactCheck.org/2026/09/x/?a=1#top
+        -> https://nepalfactcheck.org/2026/09/x
+    """
+    try:
+        parsed = urlparse((url or "").strip())
+        host = parsed.netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = parsed.path.rstrip("/")
+        return urlunparse(("https", host, path, "", "", ""))
+    except Exception:
+        return url
+
+
 def url_hash(url: str) -> str:
     """
     Generate a stable 16-char hash from a normalized URL.

@@ -83,7 +83,12 @@ class NepFakeV2Example:
 
     # --- Identity ---
     example_id: str
+    # Stable ID from the URL (schema 2.0): NF2_tp_<article number> or
+    # NF2_nfc_<10 hex of sha1(canonical URL)>. See make_example_id().
     claim_text: str
+    # The claim being checked, extracted from the article (schema 2.0).
+    # Before 2.0 this was the fact-checker's headline, which states the
+    # verdict. How it was found: claim_source.
 
     # --- Verdict ---
     verdict_label: int
@@ -91,29 +96,60 @@ class NepFakeV2Example:
 
     # --- Evidence ---
     evidence_text: str
-    evidence_sentences: list = field(default_factory=list)
+    # Article body without header, conclusion, footer/sidebar and without
+    # any sentence that states the verdict (schema 2.0). The full body is
+    # in raw/ only.
     external_evidence_urls: list = field(default_factory=list)
+    # Links in the article, minus share buttons and the outlet's own pages
+
+    # --- Text provenance (schema 2.0) ---
+    claim_source: str = ""
+    # claim_box / lead_quote / lead / claim_section / headline
+    headline: str = ""
+    # The fact-checker's headline. It usually states the verdict: never a
+    # model input for the main task.
+    conclusion_text: str = ""
+    # The fact-checker's conclusion. States the verdict: never a model input.
 
     # --- Source metadata ---
     source_name: str = ""
     source_type: str = ""
     source_url: str = ""
-    source_outlet: str = ""
     date_published: str = ""
+    date_precision: str = ""
+    # day / month / year: a year-only date is stored as YYYY-01-01
+    date_scraped: str = ""
+    # Snapshot this record was built from (raw file date). Dedup keeps the
+    # newest snapshot of each article.
 
     # --- Quality flags ---
+    language: str = ""
+    # "ne" or "en" (share of Devanagari letters in headline + evidence)
     is_native_nepali: bool = False
+    # language == "ne". (Not "written by a Nepali": all rows are Nepali outlets)
     label_basis: str = "fact_checker_verdict"
     label_source: str = ""
-    # Where the verdict was read (schema 1.1):
-    #   "nfc_header"       NepalFactCheck header tag
-    #   "conclusion"       TechPana conclusion box names exactly one verdict
-    #   "conclusion_mixed" conclusion names both मिथ्या and भ्रामक
-    #   "summary"          TechPana lead summary (no usable conclusion)
-    #   "stored"           value stored by the scraper (badge / old scraper)
+    # Where the verdict was read (config/settings.py LABEL_SOURCES):
+    #   nfc_header / conclusion / conclusion_mixed / summary / stored /
+    #   hand_checked
+    label_fine: str = ""
+    # Fine label (schema 2.0): FALSE / MISLEADING / TRUE / UNVERIFIED / MIXED.
+    # verdict_label stays the coarse label; see config/settings.py LABELS_FINE.
+    in_main_benchmark: bool = False
+    # True if the row belongs to the main FALSE-vs-MISLEADING task:
+    # label_fine is FALSE or MISLEADING, label_source is not in
+    # BENCHMARK_EXCLUDED_SOURCES, and language is "ne".
     topic_category: str = "other"
     annotator_notes: str = ""
+
+    # --- Splits (schema 2.0, pipeline/splitter.py) ---
+    claim_group_id: str = ""
+    # Rows about the same claim share this ID (never split across splits)
     split: str = ""
+    # Time split: train / dev / test (frozen file), "new" for rows added
+    # after the freeze
+    split_random: str = ""
+    # Control split: random by claim group, same frozen file
 
     # --- Schema version ---
     schema_version: str = field(default_factory=lambda: SCHEMA_VERSION)
@@ -123,71 +159,84 @@ class NepFakeV2Example:
 # HELPERS
 # =============================================================================
 
-def make_example_id(date_str: str, sequence: int) -> str:
+def make_example_id(source_name: str, source_url: str) -> str:
     """
-    Generate stable example ID.
-    ID format: NF2_YYYYMMDD_NNNN
-    e.g. "NF2_20260831_0001"
+    Stable example ID, derived from the article itself (schema 2.0).
 
-    Args:
-        date_str: ISO date string "YYYY-MM-DD" or "YYYYMMDD"
-                  Falls back to "19700101" if empty.
-        sequence: Sequential integer — unique within a batch.
+        TechPana:        the article number in the URL   -> "NF2_tp_159019"
+        NepalFactCheck:  10 hex chars of sha1(canonical URL) -> "NF2_nfc_3f9a0c1b2d"
+        anything else:   "NF2_<source>_<hash>"
 
-    Returns:
-        Example ID string.
+    It does not depend on dates, file order or other articles, so adding a
+    raw file, re-scraping or correcting a date never changes an ID.
+    (Before 2.0 the ID was NF2_<date>_<running number>; see
+    data/id_map_v1_to_v2.csv.)
     """
-    date_compact = (date_str or "19700101").replace("-", "")
-    return f"NF2_{date_compact}_{sequence:04d}"
+    import hashlib
+    import re
+    from utils.helpers import canonical_url
+
+    url = canonical_url(source_url)
+    if source_name == "techpana":
+        m = re.search(r"techpana\.com/\d{4}/(\d+)(?:/|$)", url)
+        if m:
+            return f"NF2_tp_{m.group(1)}"
+    short = {"nepalfactcheck": "nfc"}.get(source_name, source_name or "x")
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
+    return f"NF2_{short}_{digest}"
+
+
+# Column order of data/nepfakev2.csv (schema 2.0)
+COLUMNS = [
+    "example_id", "claim_text", "claim_source", "headline",
+    "verdict_label", "verdict_label_text", "label_fine", "label_source",
+    "in_main_benchmark", "evidence_text", "conclusion_text",
+    "external_evidence_urls", "source_name", "source_type", "source_url",
+    "date_published", "date_precision", "date_scraped", "language",
+    "is_native_nepali", "label_basis", "topic_category", "annotator_notes",
+    "claim_group_id", "split", "split_random", "schema_version",
+]
 
 
 def to_dict(example: NepFakeV2Example) -> dict:
-    """Convert NepFakeV2Example to flat dict for CSV/JSON export."""
-    return {
-        "example_id":             example.example_id,
-        "claim_text":             example.claim_text,
-        "verdict_label":          int(example.verdict_label),
-        "verdict_label_text":     example.verdict_label_text,
-        "evidence_text":          example.evidence_text,
-        "evidence_sentences":     " | ".join(example.evidence_sentences),
-        "external_evidence_urls": " | ".join(example.external_evidence_urls),
-        "source_name":            example.source_name,
-        "source_type":            example.source_type,
-        "source_url":             example.source_url,
-        "source_outlet":          example.source_outlet,
-        "date_published":         example.date_published,
-        "is_native_nepali":       example.is_native_nepali,
-        "label_basis":            example.label_basis,
-        "label_source":           example.label_source,
-        "topic_category":         example.topic_category,
-        "annotator_notes":        example.annotator_notes,
-        "split":                  example.split,
-        "schema_version":         example.schema_version,
-    }
+    """Convert NepFakeV2Example to a flat dict (CSV/JSON), in COLUMNS order."""
+    d = {name: getattr(example, name) for name in COLUMNS}
+    d["verdict_label"] = int(example.verdict_label)
+    d["in_main_benchmark"] = bool(example.in_main_benchmark)
+    d["is_native_nepali"] = bool(example.is_native_nepali)
+    d["external_evidence_urls"] = " | ".join(example.external_evidence_urls)
+    return d
+
+
+def _as_bool(value) -> bool:
+    """CSV gives "True"/"False" strings; "False" must not read as True."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "1", "yes")
+
+
+def _as_str(value) -> str:
+    """pandas gives NaN for an empty CSV cell."""
+    if value is None or (isinstance(value, float) and value != value):
+        return ""
+    return str(value)
 
 
 def from_dict(d: dict) -> NepFakeV2Example:
-    """Reconstruct NepFakeV2Example from CSV/JSON row."""
+    """Reconstruct NepFakeV2Example from a CSV/JSON row (2.0 columns)."""
+    urls = _as_str(d.get("external_evidence_urls", ""))
+    kw = {name: _as_str(d.get(name, "")) for name in COLUMNS
+          if name not in ("verdict_label", "in_main_benchmark", "is_native_nepali",
+                          "external_evidence_urls")}
+    kw["topic_category"] = kw["topic_category"] or "other"
+    kw["label_basis"] = kw["label_basis"] or "fact_checker_verdict"
+    kw["schema_version"] = kw["schema_version"] or SCHEMA_VERSION
     return NepFakeV2Example(
-        example_id=             d["example_id"],
-        claim_text=             d["claim_text"],
-        verdict_label=          int(d["verdict_label"]),
-        verdict_label_text=     d["verdict_label_text"],
-        evidence_text=          d["evidence_text"],
-        evidence_sentences=     d["evidence_sentences"].split(" | ") if d["evidence_sentences"] else [],
-        external_evidence_urls= d["external_evidence_urls"].split(" | ") if d["external_evidence_urls"] else [],
-        source_name=            d.get("source_name", ""),
-        source_type=            d.get("source_type", ""),
-        source_url=             d.get("source_url", ""),
-        source_outlet=          d.get("source_outlet", ""),
-        date_published=         d.get("date_published", ""),
-        is_native_nepali=       d.get("is_native_nepali", False),
-        label_basis=            d.get("label_basis", "fact_checker_verdict"),
-        label_source=           d.get("label_source", "") or "",
-        topic_category=         d.get("topic_category", "other"),
-        annotator_notes=        d.get("annotator_notes", ""),
-        split=                  d.get("split", ""),
-        schema_version=         d.get("schema_version", SCHEMA_VERSION),
+        verdict_label=int(d["verdict_label"]),
+        in_main_benchmark=_as_bool(d.get("in_main_benchmark", False)),
+        is_native_nepali=_as_bool(d.get("is_native_nepali", False)),
+        external_evidence_urls=urls.split(" | ") if urls else [],
+        **kw,
     )
 
 

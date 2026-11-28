@@ -9,12 +9,17 @@
 #   - After run: saves max(published_date_iso) as new last_published_date
 #
 # Usage:
-#   python -m pipeline.collector
+#   python -m pipeline.collector           incremental (weekly)
+#   python -m pipeline.collector --full    full re-scrape of every article
+#                                          (Phase 2; same as the workflow's
+#                                          "full_rescrape" input)
 #   (called by GitHub Actions weekly_scrape.yml)
 # =============================================================================
 
+import argparse
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -135,11 +140,27 @@ def save_raw_stats(stats: dict, run_id: str) -> None:
 # COLLECTOR
 # =============================================================================
 
-def run_collector() -> None:
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="NepFakeV2 collector")
+    parser.add_argument("--full", action="store_true",
+                        help="full re-scrape: ignore last_published_date")
+    return parser.parse_args(argv)
+
+
+def next_last_published(previous, scraped):
+    """New cutoff = the later of the previous cutoff and this run's newest
+    article, so a full re-scrape (or an empty run) never moves it back."""
+    candidates = [d for d in (previous, scraped) if d]
+    return max(candidates) if candidates else None
+
+
+def run_collector(full: bool = False) -> None:
     """
     Main entry point for Stage 1 pipeline.
-    Runs all active scrapers incrementally and updates state.
+    Runs all active scrapers (incrementally unless full=True) and updates state.
     """
+    if full:
+        os.environ["NEPFAKE_FULL_RESCRAPE"] = "1"
     run_id = datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
     create_directories()
@@ -183,7 +204,7 @@ def run_collector() -> None:
                 "sources", {}
             ).get(source_name, {}).get("last_published_date")
 
-            new_published = max_published or prev_published
+            new_published = next_last_published(prev_published, max_published)
 
             run_results[source_name] = {
                 "status": "success",
@@ -232,31 +253,21 @@ def run_collector() -> None:
     # -------------------------------------------------------------------------
     logger.info("Starting Stage 2 — normalization and export")
     try:
-        from pipeline.normalizer import normalize_all
-        from pipeline.deduplicator import deduplicate, get_dedup_stats
-        from pipeline.exporter import export
+        from pipeline.rebuild import build_dataset
 
-        examples = normalize_all()
-
-        deduped = deduplicate(examples)
-        dedup_stats = get_dedup_stats(examples, deduped)
-        logger.info(
-            f"Dedup: {dedup_stats['removed']} removed, "
-            f"{dedup_stats['after']} kept "
-            f"({dedup_stats['removal_rate']} removal rate)"
-        )
-
-        dataset_stats = export(deduped)
+        dataset_stats = build_dataset()
         logger.info(
             f"Stage 2 complete — "
             f"{dataset_stats.get('total_examples', 0)} examples exported"
         )
 
-        from pipeline.update_readme import update_readme_stats
-        if update_readme_stats():
-            logger.info("README.md stats updated")
-        else:
+        # build_dataset() also rewrote the README stats block
+        if not dataset_stats.get("_build", {}).get("readme_updated"):
             logger.warning("README.md stats update skipped — check markers")
+        changed = dataset_stats.get("_build", {}).get("label_changed", 0)
+        if changed:
+            logger.warning(f"{changed} re-scraped articles changed label_fine "
+                           f"(see the dedup report; the test gate allows 10%)")
 
         from pipeline.hf_push import push_to_huggingface
         if push_to_huggingface():
@@ -307,4 +318,4 @@ def _get_scraper(source_name: str):
 # =============================================================================
 
 if __name__ == "__main__":
-    run_collector()
+    run_collector(full=parse_args().full)

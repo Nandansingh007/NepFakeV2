@@ -58,45 +58,63 @@ VERDICT_MAP = {
 }
 
 
+# Fine labels (schema 2.0): same keys, same order as VERDICT_MAP, so the
+# fine and the coarse label always agree (tested in test_label_fine.py)
+VERDICT_MAP_FINE = {
+    "मिथ्या सूचना":  "FALSE",
+    "भ्रामक सूचना":  "MISLEADING",
+    "अपुष्ट सूचना":  "UNVERIFIED",
+    "सही सूचना":     "TRUE",
+    "मिथ्या":        "FALSE",
+    "भ्रामक":        "MISLEADING",
+    "अपुष्ट":        "UNVERIFIED",
+    "सही":           "TRUE",
+    "झुटो":          "FALSE",
+    "गलत":           "MISLEADING",   # decided Nov 2026 ("wrong context")
+    "असत्य":         "FALSE",
+    "भ्रम":          "MISLEADING",
+    "साँचो":         "TRUE",
+    "सत्य":          "TRUE",
+}
+
+
 # =============================================================================
 # MAPPING FUNCTIONS
 # =============================================================================
 
+# A "true" word followed by a negation is not a verdict ("सही होइन")
+_NEGATION = r"\s*(?:होइन|हैन|छैन|नभएको|देखिँदैन|देखिदैन)"
+_DEV = "\u0900-\u097F"
+
+
+def _fine_matches(cleaned: str) -> set:
+    """Fine labels named in the text: whole words only, negated TRUE words
+    ignored. ("भ्रम" must not match "भ्रमण"; "सही होइन" is not TRUE.)"""
+    import re
+    found = set()
+    for keyword, fine in VERDICT_MAP_FINE.items():
+        for m in re.finditer(rf"(?<![{_DEV}]){re.escape(keyword)}(?![{_DEV}])", cleaned):
+            if fine == "TRUE" and re.match(_NEGATION, cleaned[m.end():]):
+                continue
+            found.add(fine)
+    return found
+
+
 def map_verdict(raw_verdict_text: str) -> tuple[int, str]:
     """
-    Map raw verdict text to NepFakeV2 label integer and text.
+    Map raw verdict text to the coarse label (int, text).
 
-    Strategy:
-        1. Exact match against VERDICT_MAP
-        2. Partial match — check if any keyword is in verdict text
-        3. Return -1 UNKNOWN if no match found
-
-    Args:
-        raw_verdict_text: Raw verdict string from scraper
-                          e.g. "भ्रामक" / "भ्रामक सूचना" / ""
-
-    Returns:
-        Tuple of (label_int, label_text)
-        e.g. (1, "FALSE_MISLEADING")
-             (-1, "UNKNOWN") if not mappable
+    Since 2.0 the coarse label is DERIVED from the fine label
+    (map_verdict_fine + LABEL_FINE_TO_COARSE), so the two can never
+    disagree. -1 UNKNOWN when no verdict, or two different verdicts, are
+    named.
     """
-    if not raw_verdict_text or not raw_verdict_text.strip():
+    from config.settings import LABEL_FINE_TO_COARSE
+    fine = map_verdict_fine(raw_verdict_text)
+    if not fine:
         return -1, "UNKNOWN"
-
-    cleaned = raw_verdict_text.strip()
-
-    # Strategy 1: exact match
-    if cleaned in VERDICT_MAP:
-        label = VERDICT_MAP[cleaned]
-        return label, LABEL_NAMES[label]
-
-    # Strategy 2: partial match
-    # Handles variants like "दाबी भ्रामक छ" or "यो मिथ्या हो"
-    for keyword, label in VERDICT_MAP.items():
-        if keyword in cleaned:
-            return label, LABEL_NAMES[label]
-
-    return -1, "UNKNOWN"
+    label = LABEL_FINE_TO_COARSE[fine]
+    return label, LABEL_NAMES[label]
 
 
 def map_verdict_label(raw_verdict_text: str) -> int:
@@ -150,3 +168,25 @@ def get_label_distribution(verdicts: list[str]) -> dict:
         }
         for label, count in counts.items()
     }
+
+def map_verdict_fine(raw_verdict_text: str) -> str:
+    """
+    Map raw verdict text to the fine label (schema 2.0):
+    "FALSE" / "MISLEADING" / "TRUE" / "UNVERIFIED", or "" if not mappable.
+
+    1. exact match against VERDICT_MAP_FINE
+    2. otherwise the fine labels named as whole words (negated TRUE words
+       ignored): exactly one -> that label; none or several -> "" (brief
+       B2: before 2.0 the first partial match won, so "सही होइन, भ्रामक"
+       came out TRUE).
+
+    "MIXED" is never returned here: the normalizer sets it when the TechPana
+    conclusion names both मिथ्या and भ्रामक.
+    """
+    if not raw_verdict_text or not raw_verdict_text.strip():
+        return ""
+    cleaned = raw_verdict_text.strip()
+    if cleaned in VERDICT_MAP_FINE:
+        return VERDICT_MAP_FINE[cleaned]
+    found = _fine_matches(cleaned)
+    return found.pop() if len(found) == 1 else ""

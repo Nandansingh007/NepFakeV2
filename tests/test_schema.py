@@ -12,17 +12,16 @@ from config.settings import SCHEMA_VERSION
 
 
 @pytest.mark.parametrize(
-    "date, n, expected",
+    "source, url, expected",
     [
-        ("2026-08-25", 1, "NF2_20260825_0001"),
-        ("2026-08-25", 999, "NF2_20260825_0999"),
-        ("2026-08-25", 1000, "NF2_20260825_1000"),
-        ("", 1, "NF2_19700101_0001"),
-        (None, 1, "NF2_19700101_0001"),
+        ("techpana", "https://techpana.com/2026/158464/slug", "NF2_tp_158464"),
+        ("techpana", "https://www.techpana.com/2025/149828/x/?tab=nepali", "NF2_tp_149828"),
     ],
 )
-def test_make_example_id(date, n, expected):
-    assert make_example_id(date, n) == expected
+def test_make_example_id(source, url, expected):
+    # Schema 2.0: from the URL, not from (date, running number). More in
+    # tests/test_identity_and_snapshots.py
+    assert make_example_id(source, url) == expected
 
 
 @pytest.mark.parametrize(
@@ -57,18 +56,12 @@ def test_schema_version_set(example):
 
 def test_to_dict_keys_and_types(example):
     d = to_dict(example)
-    required_keys = [
-        'example_id', 'claim_text', 'verdict_label', 'verdict_label_text',
-        'evidence_text', 'evidence_sentences', 'external_evidence_urls',
-        'source_name', 'source_type', 'source_url', 'source_outlet',
-        'date_published', 'is_native_nepali', 'label_basis', 'label_source',
-        'topic_category', 'annotator_notes', 'split', 'schema_version',
-    ]
-    missing = [k for k in required_keys if k not in d]
-    assert not missing, f"to_dict() missing keys: {missing}"
+    from schema.schema import COLUMNS
+    assert list(d) == COLUMNS
+    # evidence_sentences and source_outlet were always empty: removed in 2.0
+    assert "evidence_sentences" not in d and "source_outlet" not in d
     assert isinstance(d['verdict_label'], int)  # CSV-safe
     # lists are serialized as pipe-separated strings
-    assert isinstance(d['evidence_sentences'], str)
     assert isinstance(d['external_evidence_urls'], str)
 
 
@@ -87,7 +80,9 @@ def test_round_trip_with_lists():
         verdict_label=0,
         verdict_label_text="REAL",
         evidence_text="प्रमाण यहाँ छ। " * 5,
-        evidence_sentences=["पहिलो वाक्य", "दोस्रो वाक्य"],
+        claim_source="lead", headline="शीर्षक", conclusion_text="निष्कर्ष",
+        date_precision="day", language="ne", claim_group_id="G_tp_1",
+        split="train", split_random="dev",
         external_evidence_urls=["https://example.com/1", "https://example.com/2"],
         source_name="nepalfactcheck",
         source_type="fact_checker",
@@ -97,7 +92,9 @@ def test_round_trip_with_lists():
         schema_version=SCHEMA_VERSION,
     )
     ex2 = from_dict(to_dict(ex))
-    assert ex2.evidence_sentences == ["पहिलो वाक्य", "दोस्रो वाक्य"]
+    assert (ex2.claim_source, ex2.headline, ex2.conclusion_text) == ("lead", "शीर्षक", "निष्कर्ष")
+    assert (ex2.date_precision, ex2.language, ex2.claim_group_id) == ("day", "ne", "G_tp_1")
+    assert (ex2.split, ex2.split_random) == ("train", "dev")
     assert ex2.external_evidence_urls == ["https://example.com/1", "https://example.com/2"]
 
 
@@ -113,3 +110,14 @@ def test_raw_article_iso_date_defaults_empty():
     )
     # published_date_iso is internal — defaults to empty
     assert raw.published_date_iso == ""
+
+
+def test_from_dict_reads_empty_csv_cells():
+    # pandas gives NaN (a float) for an empty cell; it must come back as ""
+    d = to_dict(NepFakeV2Example(
+        example_id="NF2_tp_1", claim_text="दाबी यहाँ छ", verdict_label=1,
+        verdict_label_text="FALSE_MISLEADING", evidence_text="प्रमाण"))
+    d["conclusion_text"] = float("nan")
+    d["is_native_nepali"] = "False"
+    ex = from_dict(d)
+    assert ex.conclusion_text == "" and ex.is_native_nepali is False
