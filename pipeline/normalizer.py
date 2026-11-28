@@ -33,7 +33,8 @@ from config.settings import (RAW_DIRS, SCHEMA_VERSION, BENCHMARK_EXCLUDED_SOURCE
 from schema.schema import NepFakeV2Example, make_example_id
 from schema.validator import validate_batch
 from pipeline.label_mapper import map_verdict, map_verdict_fine
-from pipeline.claim_extractor import extract_claim
+from pipeline.claim_extractor import extract_claim, extract_claimant, extract_platform
+from pipeline.claims_reference import load_claims
 from pipeline.evidence_cleaner import clean_evidence
 from pipeline.reference_labels import load_reference_labels, fine_label
 from pipeline.text_rules import devanagari_share
@@ -200,7 +201,8 @@ def _exclude(exclusions, raw, reason):
 
 
 def normalize_article(raw: dict, references: Optional[dict] = None,
-                      exclusions: Optional[list] = None) -> Optional[NepFakeV2Example]:
+                      exclusions: Optional[list] = None,
+                      claims: Optional[dict] = None) -> Optional[NepFakeV2Example]:
     """
     Normalize one raw article. Returns None when the article is left out;
     the reason is appended to `exclusions` (if given).
@@ -208,9 +210,12 @@ def normalize_article(raw: dict, references: Optional[dict] = None,
     Args:
         raw:        raw article dict from raw/<source>/<date>.json
         references: {canonical_url: hand-checked label} (see reference_labels)
+        claims:     {canonical_url: {"claim_text", "claimant"}} hand-checked
+                    claims (see claims_reference)
         exclusions: list that collects the reason for each left-out article
     """
     references = references or {}
+    claims = claims or {}
     source_name = raw.get("source_name", "")
     source_url = raw.get("source_url", "")
     title = (raw.get("title") or "").strip()
@@ -261,7 +266,16 @@ def normalize_article(raw: dict, references: Optional[dict] = None,
 
     # --- Text fields ---
     evidence_text, conclusion_text = clean_evidence(source_name, title, body_text)
-    claim_text, claim_source = extract_claim(source_name, title, evidence_text, conclusion_text)
+    claim_text, claim_source = extract_claim(source_name, title, evidence_text,
+                                             conclusion_text, body_text)
+    claimant = extract_claimant(source_name, body_text)
+    hand = claims.get(canonical_url(source_url))
+    if hand:
+        claim_text, claim_source = hand["claim_text"], "hand_checked"
+        claimant = hand["claimant"] or claimant
+    claim_platform = extract_platform(source_name, claimant, body_text)
+    if hand and hand.get("claim_platform"):
+        claim_platform = hand["claim_platform"]
 
     share = devanagari_share(title + " " + evidence_text[:2000])
     language = "ne" if share >= 0.5 else "en"
@@ -278,11 +292,14 @@ def normalize_article(raw: dict, references: Optional[dict] = None,
         example_id=make_example_id(source_name, source_url),
         claim_text=claim_text,
         claim_source=claim_source,
+        claimant=claimant,
+        claim_platform=claim_platform,
         headline=title,
         verdict_label=verdict_label,
         verdict_label_text=verdict_label_text,
         label_fine=label_fine,
         label_source=label_source,
+        verified="gold" if label_source == "hand_checked" else "silver",
         in_main_benchmark=in_main_benchmark,
         evidence_text=evidence_text,
         conclusion_text=conclusion_text,
@@ -325,17 +342,19 @@ def load_raw(raw_dirs: dict = None) -> list[dict]:
     return out
 
 
-def normalize_all(references: Optional[dict] = None) -> list[NepFakeV2Example]:
+def normalize_all(references: Optional[dict] = None,
+                  claims: Optional[dict] = None) -> list[NepFakeV2Example]:
     """
     Normalize every raw article, validate, and record what was left out in
     LAST_EXCLUSIONS. Several snapshots of one URL are all returned; the
     deduplicator keeps the newest.
     """
     references = load_reference_labels() if references is None else references
+    claims = load_claims() if claims is None else claims
     exclusions: list[dict] = []
     examples = []
     for raw in load_raw(RAW_DIRS):
-        ex = normalize_article(raw, references, exclusions)
+        ex = normalize_article(raw, references, exclusions, claims)
         if ex is not None:
             examples.append(ex)
 

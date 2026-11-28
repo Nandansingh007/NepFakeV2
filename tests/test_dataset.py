@@ -16,8 +16,9 @@ pytestmark = pytest.mark.data
 
 # Schema 2.0: exactly these columns, in this order (schema/schema.py COLUMNS)
 REQUIRED_COLS = [
-    "example_id", "claim_text", "claim_source", "headline",
-    "verdict_label", "verdict_label_text", "label_fine", "label_source",
+    "example_id", "claim_text", "claim_source", "claimant", "claim_platform",
+    "headline", "verdict_label", "verdict_label_text", "label_fine",
+    "label_source", "verified",
     "in_main_benchmark", "evidence_text", "conclusion_text",
     "external_evidence_urls", "source_name", "source_type", "source_url",
     "date_published", "date_precision", "date_scraped", "language",

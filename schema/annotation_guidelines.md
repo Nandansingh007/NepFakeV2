@@ -140,7 +140,8 @@ The file is keyed by `source_url`, which never changes.
 
 | Field | Model input? | Why |
 |---|---|---|
-| `claim_text` | yes | The claim from the article (lead, quote, claim box). Verdict words removed |
+| `claim_text` | yes | The claim from the article (NFC summary box, `के … हो?` headline, TechPana caption) or written by hand. Verdict words removed |
+| `claimant` | yes (optional) | Who made the claim. Names a person or a page, never the verdict |
 | `evidence_text` | yes | The body without header, conclusion and verdict sentences |
 | `headline` | **no** | Usually states the verdict ("... दाबी भ्रामक", "नझुक्किनुस्") |
 | `conclusion_text` | **no** | It is the verdict |

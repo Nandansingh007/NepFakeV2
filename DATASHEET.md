@@ -5,9 +5,11 @@ the 2026-11-23 data (940 rows); `data/stats.json` has the current ones.
 
 ## Motivation
 
-- **Purpose.** A real, non-synthetic Nepali fact-checking dataset. Main task:
-  tell **FALSE** (मिथ्या: nothing real behind the claim) from **MISLEADING**
-  (भ्रामक: something real, twisted) using the claim and the evidence.
+- **Purpose.** A real, non-synthetic Nepali fact-checking dataset. Candidate
+  tasks (the official one is fixed at the v2.0 freeze): tell **FALSE**
+  (मिथ्या: nothing real behind the claim) from **MISLEADING** (भ्रामक:
+  something real, twisted) from the claim and the evidence, or from the claim
+  alone; claimant; explanation generation from `conclusion_text`.
 - **Creator.** Nandan Singh. No funding.
 
 ## Composition
@@ -47,6 +49,27 @@ the 2026-11-23 data (940 rows); `data/stats.json` has the current ones.
   pipeline only reads their published verdict. A hand check of the
   pipeline's reading is planned before the release (`data_validation/`).
 
+## Field quality (benchmark rows, measured 28 Nov 2026)
+
+How each key field is made, how often it is filled, and how well it matches
+the fact-check article. "Matches the article" is not "the fact-checker is
+right": only the hand check (`verified == "gold"`) speaks to that. Samples
+were read by one reader (an AI assistant, not a human annotator; seeds
+given), so the rates are rough and do not replace the human hand check.
+Coverage is on the 830 benchmark rows.
+
+| Field | Rule (NepalFactCheck / TechPana) | Coverage | Measured | Known failures |
+|---|---|---|---|---|
+| `claim_text` | NFC summary box `दावी :`, else a `के … हो?` headline, else the lead / TechPana: the post's caption quoted in the `दाबी` section, else the lead. Hand-checked rows override | 100% | Not-a-claim in a 30-row sample (seed 99): 0/12 box, 0/3 question, 2/10 caption, 4/5 fallback | Captions sometimes quote a reply or a page name; fallbacks are mostly "a video went viral"; 257 rows (caption and fallback) go to the hand pass |
+| `evidence_text` | Body after the header, before the footer, without the conclusion (TechPana `निष्कर्ष`, NFC summary box) and without any sentence with a verdict word | 100% | 0 rows with a word starting मिथ्या / भ्रामक / अपुष्ट, or the words झुटो / असत्य (tested); word counter at the majority rate (tested) | Some boilerplate (comment prompts, "read also", old NFC footer with an email, inline media links); the outlet's own name appears in most rows |
+| `label_fine` | NFC header tag line / TechPana conclusion box naming one verdict, else the lead summary. MIXED and badge-only rows are out of the benchmark | 100% | 20/20 match the article (seed 404). NFC header vs its own summary box: 460/464 agree | **TechPana's headline and conclusion name different verdicts in 10 of 87 articles** where the headline names one (e.g. headline झुटो, conclusion भ्रामक; the conclusion is used). 4 NFC rows: header मिथ्या, box भ्रामक. The FALSE/MISLEADING line is not drawn consistently by the outlets themselves |
+| `verified` | `gold` if a person checked the label (`data_validation/reference_labels.csv`), else `silver` | 100% | — | 0 gold rows until the hand check is done |
+| `source_name` | The scraper that fetched the page | 100% | Domain matches on 940/940 | — |
+| `source_url` | The article URL, canonical (https, no query) | 100% | 0 duplicates | Not checked whether the pages are still online |
+| `date_published` | NFC: the page's publish timestamp / TechPana: the article's own date line (BS, converted) | 100% | NFC: URL year-month 666/666, BS date line within 1 day 435/438. TechPana: URL year 274/274 | 3 NFC rows 2–6 days off (likely edit dates) |
+| `claimant` | NFC: the `दावीकर्ता :` line / TechPana: none (hand check only) | NFC 74%, TechPana 0% | 25/25 exact copies of the line (seed 31) | 48 are only "social-media users"; 2020–22 NFC articles have no such line; names private accounts |
+| `claim_platform` | Platform words in the claimant line (NFC) and the first 300 characters of the `दाबी` section (TechPana) | NFC 54%, TechPana 90% | 20/20 name a platform the text names (seed 77); 4 of them add an extra `news_media` (a Facebook page called "… TV" or "… news") | Page names that sound like media are tagged `news_media`; empty means "not stated", not "no platform" |
+
 ## Known problems (read before reporting results)
 
 1. **The label prior moves over time.** Benchmark FALSE share: 61% in train,
@@ -62,9 +85,17 @@ the 2026-11-23 data (940 rows); `data/stats.json` has the current ones.
    purpose (for example "एआई" for FALSE, "पुरानो" for MISLEADING): they are the
    evidence. A character n-gram logistic regression gets macro-F1 0.68 on
    `evidence_text` (0.81 on the old full body), grouped 5-fold.
-4. **`claim_text` is extracted, not written by hand.** `lead` 793,
-   `lead_quote` 55, `claim_section` 22, `claim_box` 8, `headline` 60
-   (fallback). Not yet hand-checked (planned: 50 claims).
+4. **`claim_text` comes from the fact-checker's own claim statement where
+   there is one.** Benchmark rows: NFC summary box (`claim_box`) 524, NFC
+   `के … हो?` headline 49, TechPana post caption (`claim_caption`) 190,
+   fallbacks (lead, quote, claim section, headline) 67. In a 30-row blind
+   sample (28 Nov 2026, one reader), 0 of 12 `claim_box` and 0 of 3
+   `headline_question` claims were "not a claim", against 2 of 10 captions
+   and 4 of 5 fallbacks. The caption and fallback rows (257) are checked by
+   hand (`data_validation/claims_reference.csv`, `claim_source`
+   `hand_checked`). Box claims are short editorial phrases and captions are
+   raw social-media text, so claim style differs by outlet: report
+   claim-only scores per outlet.
 5. **Claim groups are a heuristic** (rare shared words, 30 days). One
    election-period group has 38 rows.
 6. **`stored` labels (46) are the weakest**; they are out of the benchmark
@@ -106,8 +137,8 @@ the 2026-11-23 data (940 rows); `data/stats.json` has the current ones.
 - **Versions** ([VERSIONING.md](VERSIONING.md)): the benchmark is the
   release tag `v2.0` (frozen, never edited); each weekly push is tagged
   `run-YYYY-MM-DD` on GitHub and Hugging Face. Cite the tag
-  (`CITATION.cff`), not a download date. Scores: macro-F1 on the v2.0 time
-  test split, with the random split and the majority baseline
+  (`CITATION.cff`), not a download date. The official task, split and
+  metric are fixed at the v2.0 freeze; always give the majority baseline
   (`python -m pipeline.evaluate`).
 - **Licence scope.** CC BY 4.0 covers the labels, metadata and structure;
   the quoted article text stays the outlets' copyright.

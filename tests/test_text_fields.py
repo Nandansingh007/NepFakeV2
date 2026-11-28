@@ -247,3 +247,15 @@ def test_nfc_factcheck_explainer_hybrid_is_kept():
     assert is_explainer(pure, title)
     tag_first = f"☰\n×\nजलवायु र वातावरण   एक्सप्लेनर   सही सूचना\n{title}\nHome"
     assert is_explainer(tag_first, title)
+
+
+@pytest.mark.data
+def test_no_verdict_tag_word_in_benchmark_evidence(normalized):
+    # Zero, not "few": any word starting with मिथ्या / भ्रामक / अपुष्ट (and
+    # the whole words झुटो, असत्य) in a benchmark evidence_text is a leak.
+    # Before 28 Nov 2026 the danda in "तथ्य : भ्रामक।" hid 14 of them.
+    stems = re.compile(r"(?<![ऀ-ॣॱ-ॿ])(?:मिथ्या|भ्रामक|अपुष्ट)"
+                       r"|(?<![ऀ-ॣॱ-ॿ])(?:झुटो|झूटो|असत्य)(?![ऀ-ॣॱ-ॿ])")
+    bad = [(e.example_id, stems.search(e.evidence_text).group(0))
+           for e in normalized if e.in_main_benchmark and stems.search(e.evidence_text)]
+    assert not bad, bad[:10]

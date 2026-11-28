@@ -113,6 +113,13 @@ LABEL_FINE_TO_COARSE = {
 #                     excluded until hand-checked)
 BENCHMARK_EXCLUDED_SOURCES = {"conclusion_mixed", "stored"}
 
+# NepalFactCheck's summary box ("दावी : … / दावीकर्ता : … / तथ्य : …") is the
+# fact-checker's own one-line answer. False (default since 28 Nov 2026): it
+# goes to conclusion_text, like TechPana's निष्कर्ष box, and evidence_text is
+# the article's reasoning only. True: it stays at the end of evidence_text
+# (the behaviour before 28 Nov 2026).
+NFC_BOX_IN_EVIDENCE = False
+
 # Where a record's verdict was read (label_source column, schema 1.1).
 # Set in pipeline/normalizer.py; TechPana rule in scrapers/techpana.py
 # resolve_verdict().
@@ -128,7 +135,14 @@ LABEL_SOURCES = {
 }
 
 # Where claim_text came from (pipeline/claim_extractor.py)
-CLAIM_SOURCES = ("claim_box", "lead_quote", "lead", "claim_section", "headline")
+#   claim_box          NFC summary box "दावी : …"
+#   headline_question  NFC headline "के … हो?"
+#   claim_caption      TechPana: the post's text quoted in the "दाबी" section
+#   lead_quote / lead / claim_section / headline   fallbacks, both outlets
+#   hand_checked       a person wrote or confirmed it
+#                      (data_validation/claims_reference.csv)
+CLAIM_SOURCES = ("claim_box", "headline_question", "claim_caption",
+                 "lead_quote", "lead", "claim_section", "headline", "hand_checked")
 
 # =============================================================================
 # SPLITS (pipeline/splitter.py)

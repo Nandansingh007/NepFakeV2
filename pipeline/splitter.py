@@ -217,8 +217,9 @@ def release(csv_path: Path = None, out_dir: Path = None, citation: Path = None) 
         "date_range": [dates[0], dates[-1]] if dates else [],
         "split_file_sha256": sha256_file(Path(SPLIT_FILE)),
         "files": dict(sorted(written.items())),
-        "official_metric": "macro-F1 over FALSE and MISLEADING on test.csv "
-                           "(time split); also report random_test.csv",
+        "official_metric": "see VERSIONING.md (fixed at the v2.0 freeze); "
+                           "candidate: macro-F1 over FALSE and MISLEADING on "
+                           "test.csv and random_test.csv, also --gold",
     }
     (out_dir / "RELEASE.json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n",
                                           encoding="utf-8", newline="\n")

@@ -16,12 +16,19 @@
 
 import re
 
+from config.settings import NFC_BOX_IN_EVIDENCE
 from pipeline.text_rules import leaks_verdict, split_sentences
 from scrapers.techpana import extract_own_date, strip_sidebar
 
 TP_CONCLUSION = re.compile(r"\n\s*निष्कर्ष\s*\n")
 TP_FOOTER = re.compile(r"\n\s*प्रतिक्रिया\s*\n")
-NFC_CONCLUSION = re.compile(r"\n\s*(?:तथ्य\s*जाँच\s*/\s*निष्कर्ष|निष्कर्ष)\s*:?\s*\n")
+NFC_CONCLUSION = re.compile(r"\n\s*(?:तथ्य\s*जाँ+च\s*/\s*नि[ष्श]्कर्ष|नि[ष्श]्कर्ष)\s*:?\s*\n")
+# NFC's summary box at the end of the article: "तथ्य जाँच" heading (optional),
+# then "दावी : …", "दावीकर्ता : …", "तथ्य : <verdict>. <finding>". It is the
+# fact-checker's own summary of the answer, like TechPana's निष्कर्ष box, so
+# it goes to conclusion_text with it (config NFC_BOX_IN_EVIDENCE). The claim
+# and the claimant are read from it into their own columns.
+NFC_BOX_START = re.compile(r"(?:\n\s*(?:तथ्य\s*जाँ+च|तथ्यजाँ+च)\s*)?\n\s*दा[वब]ी\s*[:ः]")
 NFC_FOOTER = "प्रतिक्रिया दिनुहोस्"
 NFC_BS_DATE = re.compile(r"^(?:बैशाख|वैशाख|जेठ|जेष्ठ|असार|आषाढ|साउन|श्रावण|भदौ|भाद्र|असोज|अशोज|आश्विन|"
                          r"कात्तिक|कार्तिक|मंसिर|मङ्सिर|पुस|पौष|माघ|फागुन|फाल्गुन|चैत|चैत्र)\s+[०-९\d]+")
@@ -83,6 +90,13 @@ def _nfc(title: str, body: str) -> tuple[str, str]:
         h = heads[-1]
         conclusion = ("\n" + text)[h.end():].strip()
         text = ("\n" + text)[:h.start()].strip()
+    if not NFC_BOX_IN_EVIDENCE:
+        boxes = list(NFC_BOX_START.finditer("\n" + text))
+        if boxes:
+            b = boxes[-1]
+            box = ("\n" + text)[b.start():].strip()
+            text = ("\n" + text)[:b.start()].strip()
+            conclusion = (box + "\n" + conclusion).strip()
     return text, conclusion
 
 

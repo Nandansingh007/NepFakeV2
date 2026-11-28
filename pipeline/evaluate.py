@@ -5,10 +5,13 @@
 #   python -m pipeline.evaluate predictions.csv              # time test split
 #   python -m pipeline.evaluate predictions.csv --random     # random control
 #   python -m pipeline.evaluate predictions.csv --split dev
+#   python -m pipeline.evaluate predictions.csv --gold       # hand-checked rows only
 #
 # predictions.csv: columns example_id, prediction (FALSE or MISLEADING),
 # one row per example of the chosen split. A missing, extra or unknown row is
 # an error: a score on a different set of rows is not comparable.
+# --gold scores only the rows whose label a person checked (verified ==
+# "gold"); predictions for the split's other rows are allowed and ignored.
 #
 # The gold file is the release file (data/v2.0/test.csv ...), so a score is
 # always tied to a version. Report: version, split, macro-F1, and the
@@ -77,6 +80,8 @@ def main(argv=None) -> int:
     ap.add_argument("predictions")
     ap.add_argument("--split", default="test", choices=("train", "dev", "test"))
     ap.add_argument("--random", action="store_true", help="use the random control split")
+    ap.add_argument("--gold", action="store_true",
+                    help="score only hand-checked rows (verified == gold)")
     ap.add_argument("--release-dir", default=str(RELEASE_DIR))
     a = ap.parse_args(argv)
     rdir = Path(a.release_dir)
@@ -85,9 +90,21 @@ def main(argv=None) -> int:
         print(f"{gold_path} not found: the benchmark is not released yet "
               f"(scores on provisional splits must not be reported)")
         return 2
-    s = scores(_read(gold_path, "label_fine"), _read(Path(a.predictions), "prediction"))
+    gold = _read(gold_path, "label_fine")
+    pred = _read(Path(a.predictions), "prediction")
+    if a.gold:
+        tier = _read(gold_path, "verified")
+        extra = sorted(set(pred) - set(gold))
+        if extra:
+            raise ValueError(f"{len(extra)} predictions are not in this split (e.g. {extra[:3]})")
+        gold = {k: v for k, v in gold.items() if tier.get(k) == "gold"}
+        if not gold:
+            print(f"{gold_path}: no gold (hand-checked) rows in this split")
+            return 2
+        pred = {k: v for k, v in pred.items() if k in gold}
+    s = scores(gold, pred)
     version = rdir.name if rdir.name.startswith("v") else RELEASE_TAG
-    split = f"{'random ' if a.random else 'time '}{a.split}"
+    split = f"{'random ' if a.random else 'time '}{a.split}" + (", gold rows only" if a.gold else "")
     print(f"NepFakeV2 {version}, {split} split, {s['n']} rows "
           f"(FALSE {s['counts']['FALSE']}, MISLEADING {s['counts']['MISLEADING']})")
     print(f"  macro-F1  {s['macro_f1']:.4f}   (majority baseline {s['majority_macro_f1']:.4f})")

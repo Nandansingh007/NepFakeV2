@@ -6,7 +6,7 @@
 # tested on a claim it was trained on.
 #
 # Rule: two rows are in one group when they were published at most
-# CLAIM_GROUP_MAX_DAYS apart and their word sets (claim + headline, verdict
+# CLAIM_GROUP_MAX_DAYS apart and their word sets (lead claim + headline, verdict
 # and function words removed) overlap: the rare-word weight they share is
 # >= CLAIM_GROUP_MIN_SIMILARITY of the smaller set and >=
 # CLAIM_GROUP_MIN_SHARED_WEIGHT in total.
@@ -23,6 +23,7 @@ from datetime import date
 
 from config.settings import (CLAIM_GROUP_MAX_DAYS, CLAIM_GROUP_MIN_SIMILARITY,
                              CLAIM_GROUP_MIN_SHARED_WEIGHT)
+from pipeline.claim_extractor import lead_claim
 from pipeline.text_rules import CUE_WORDS, VERDICT_WORDS
 
 STOP = set(VERDICT_WORDS + CUE_WORDS + """
@@ -75,12 +76,25 @@ def _days(a: str, b: str) -> int:
         return 10 ** 6
 
 
+def _group_claim(e) -> str:
+    claim, source = lead_claim(e.headline, e.evidence_text or "")
+    return e.claim_text if source == "headline" else claim
+
+
 def find_groups(examples, max_days: int = CLAIM_GROUP_MAX_DAYS,
                 min_sim: float = CLAIM_GROUP_MIN_SIMILARITY,
                 min_shared: float = CLAIM_GROUP_MIN_SHARED_WEIGHT) -> dict:
     """{example_id: claim_group_id} for every example."""
+    # Words compared: the lead claim (claim_extractor.lead_claim: the lead
+    # sentence or its quote, else the cleaned headline) + the headline. Not
+    # claim_text: claim_text can be the viral post's own wording (TechPana
+    # captions: typos, slang) or a hand-written claim, and grouping must not
+    # change when a person rewrites a claim. (Before the claim-box and
+    # caption rules, claim_text was this lead claim: groups barely move.)
+    # When the lead has no claim (lead_claim falls back to the headline),
+    # claim_text is used.
     rows = [(e.example_id, e.date_published or "",
-             claim_tokens(e.claim_text + " " + e.headline)) for e in examples]
+             claim_tokens(_group_claim(e) + " " + e.headline)) for e in examples]
     idf = _weights([r[2] for r in rows])
     rows.sort(key=lambda r: (r[1], r[0]))
     parent = {r[0]: r[0] for r in rows}

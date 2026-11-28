@@ -206,6 +206,14 @@ def validate_example(example: NepFakeV2Example) -> ValidationResult:
     # --- text provenance / language / dates (schema 2.0) ---
     if example.claim_source and example.claim_source not in CLAIM_SOURCES:
         errors.append(f"claim_source invalid: {example.claim_source}")
+    if example.verified not in ("gold", "silver"):
+        errors.append(f"verified invalid: {example.verified}")
+    if (example.verified == "gold") != (example.label_source == "hand_checked"):
+        errors.append("verified must be gold exactly when label_source is hand_checked")
+    from pipeline.claim_extractor import PLATFORM_VALUES
+    bad = [p for p in (example.claim_platform or "").split("|") if p and p not in PLATFORM_VALUES]
+    if bad:
+        errors.append(f"claim_platform invalid: {bad}")
     if example.language not in LANGUAGES:
         errors.append(f"language invalid: {example.language}")
     if example.language and example.is_native_nepali != (example.language == "ne"):

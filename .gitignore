@@ -7,3 +7,4 @@ __pycache__/
 .DS_Store
 .coverage
 .pytest_cache/
+data_validation/claims_to_check.csv

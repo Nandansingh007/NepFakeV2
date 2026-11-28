@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-11-28T02:10:38.051149+00:00",
+  "last_updated": "2026-11-28T03:40:20.655439+00:00",
   "total_examples": 940,
   "total_including_unknown": 966,
   "excluded": {
@@ -131,11 +131,13 @@
     "MISLEADING": 511
   },
   "claim_source_distribution": {
-    "lead": 795,
-    "headline": 60,
-    "lead_quote": 55,
-    "claim_section": 22,
-    "claim_box": 8
+    "claim_box": 544,
+    "claim_caption": 247,
+    "lead": 60,
+    "headline_question": 59,
+    "headline": 20,
+    "lead_quote": 8,
+    "claim_section": 2
   },
   "language_distribution": {
     "ne": 934,
@@ -150,9 +152,9 @@
     "dev": 192
   },
   "split_random_distribution": {
-    "train": 666,
+    "train": 667,
     "test": 173,
-    "dev": 101
+    "dev": 100
   },
   "language": {
     "nepali_script": 934,

@@ -19,6 +19,29 @@ Numbers below are for the 2026-11-23 data: 940 rows, 26 left out.
   claim, NFC claim box, or the "दाबी" section), not the fact-checker's
   headline, which usually states the verdict. Fallback: the headline with the
   prefix and verdict words removed. `claim_source` says which.
+- Claim fix, before the v2.0 release (28 Nov 2026): `claim_text` reads
+  NepalFactCheck's summary box (`दावी :`, both spellings; it sat in
+  `evidence_text`, so the old rule found it 8 times), NFC `के … हो?`
+  headlines, and the post caption quoted in TechPana's `दाबी` section. New
+  `claim_source` values `headline_question`, `claim_caption`, `hand_checked`.
+  New column `claimant` (NFC `दावीकर्ता`). Hand-checked claims:
+  `data_validation/claims_reference.csv` (`python -m pipeline.claims_reference
+  sheet` writes the draft). Claim groups now compare the lead claim, not
+  `claim_text`, so they do not move when a claim is rewritten (825 groups,
+  was 827). No label changed.
+- Data quality (28 Nov 2026, before the release): new columns
+  `claim_platform` (where the claim spread, rule-based, hand-checkable) and
+  `verified` (`gold` when a person checked the label, else `silver`;
+  `python -m pipeline.evaluate … --gold`). NepalFactCheck's summary box
+  (`दावी / दावीकर्ता / तथ्य`) moved from `evidence_text` to `conclusion_text`,
+  like TechPana's `निष्कर्ष` box (setting `NFC_BOX_IN_EVIDENCE`); a TF-IDF
+  probe on `evidence_text` is unchanged (macro-F1 0.705 → 0.706). Verdict
+  words followed by a danda ("भ्रामक।") were not removed from evidence:
+  fixed, and a test now requires zero tag words in benchmark
+  `evidence_text`. Field quality table in DATASHEET.md. No label changed.
+- Docs: "Main task" replaced by "What the data supports" (README, HF card,
+  DATASHEET, VERSIONING). The official task, split and metric are fixed at
+  the v2.0 freeze, not before.
 - `evidence_text` is the article body without header, conclusion, footer and
   sidebar, and without any sentence that states the verdict. A word counter
   (मिथ्या vs भ्रामक) scored 90.3% on the old `evidence_text` (majority

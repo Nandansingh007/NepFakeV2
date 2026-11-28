@@ -36,16 +36,33 @@ DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 LATIN = re.compile(r"[A-Za-z]")
 
 
+# Devanagari letters and vowel signs, NOT the danda (।, ॥) or the digits:
+# "भ्रामक।" is the word भ्रामक followed by a full stop. (Before 28 Nov 2026
+# the danda counted as a letter, so "तथ्य : भ्रामक।" was not caught.)
+_LETTER = "\u0900-\u0963\u0971-\u097F"
+
+# Tag words that are never anything but a verdict, so any word that starts
+# with them counts too: भ्रामकका, भ्रामकता, मिथ्यापूर्ण, अपुष्टता.
+# (भ्रम and गलत stay whole-word only: भ्रमण is travel, गलती is a mistake.)
+TAG_STEMS = ["मिथ्या", "भ्रामक", "अपुष्ट"]
+
+
 def has_word(text: str, words) -> bool:
     """Whole-word match for Devanagari (भ्रम must not match भ्रमण)."""
     return any(
-        re.search(rf"(?<![ऀ-ॿ]){re.escape(w)}(?![ऀ-ॿ])", text or "")
+        re.search(rf"(?<![{_LETTER}]){re.escape(w)}(?![{_LETTER}])", text or "")
         for w in words)
+
+
+def has_tag_stem(text: str) -> bool:
+    """A word starting with a verdict tag (मिथ्या…, भ्रामक…, अपुष्ट…)."""
+    return any(re.search(rf"(?<![{_LETTER}]){w}", text or "") for w in TAG_STEMS)
 
 
 def leaks_verdict(sentence: str) -> bool:
     """True if a sentence gives the verdict away."""
-    if has_word(sentence, VERDICT_WORDS) or VERDICT_PHRASE.search(sentence or ""):
+    if has_word(sentence, VERDICT_WORDS) or has_tag_stem(sentence) \
+            or VERDICT_PHRASE.search(sentence or ""):
         return True
     if re.search(r"\b(?:misleading|false|fake|unverified)\b", sentence or "", re.I):
         return True

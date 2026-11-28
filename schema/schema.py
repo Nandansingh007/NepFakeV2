@@ -104,7 +104,16 @@ class NepFakeV2Example:
 
     # --- Text provenance (schema 2.0) ---
     claim_source: str = ""
-    # claim_box / lead_quote / lead / claim_section / headline
+    # config/settings.py CLAIM_SOURCES: claim_box / headline_question /
+    # claim_caption / lead_quote / lead / claim_section / headline /
+    # hand_checked
+    claimant: str = ""
+    # Who made the claim, as the fact-checker names it (NFC "दावीकर्ता";
+    # TechPana only from the hand check). Empty if not given.
+    claim_platform: str = ""
+    # Where the claim spread, "|"-joined: facebook / tiktok / x / youtube /
+    # instagram / messaging / news_media. From the claimant line and
+    # TechPana's "दाबी" section, or the hand check. Empty = not stated.
     headline: str = ""
     # The fact-checker's headline. It usually states the verdict: never a
     # model input for the main task.
@@ -129,6 +138,10 @@ class NepFakeV2Example:
     # language == "ne". (Not "written by a Nepali": all rows are Nepali outlets)
     label_basis: str = "fact_checker_verdict"
     label_source: str = ""
+    verified: str = "silver"
+    # gold: a person checked the label (data_validation/reference_labels.csv,
+    # label_source "hand_checked"). silver: label read from the article by
+    # the rules only. pipeline/evaluate.py --gold scores gold rows only.
     # Where the verdict was read (config/settings.py LABEL_SOURCES):
     #   nfc_header / conclusion / conclusion_mixed / summary / stored /
     #   hand_checked
@@ -188,8 +201,9 @@ def make_example_id(source_name: str, source_url: str) -> str:
 
 # Column order of data/nepfakev2.csv (schema 2.0)
 COLUMNS = [
-    "example_id", "claim_text", "claim_source", "headline",
-    "verdict_label", "verdict_label_text", "label_fine", "label_source",
+    "example_id", "claim_text", "claim_source", "claimant", "claim_platform",
+    "headline", "verdict_label", "verdict_label_text", "label_fine",
+    "label_source", "verified",
     "in_main_benchmark", "evidence_text", "conclusion_text",
     "external_evidence_urls", "source_name", "source_type", "source_url",
     "date_published", "date_precision", "date_scraped", "language",
@@ -231,6 +245,7 @@ def from_dict(d: dict) -> NepFakeV2Example:
     kw["topic_category"] = kw["topic_category"] or "other"
     kw["label_basis"] = kw["label_basis"] or "fact_checker_verdict"
     kw["schema_version"] = kw["schema_version"] or SCHEMA_VERSION
+    kw["verified"] = kw["verified"] or "silver"
     return NepFakeV2Example(
         verdict_label=int(d["verdict_label"]),
         in_main_benchmark=_as_bool(d.get("in_main_benchmark", False)),

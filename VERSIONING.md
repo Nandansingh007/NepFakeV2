@@ -36,10 +36,11 @@ rows on schema 2.0.
 ## Reporting a score
 
 - Name the release and the split: "NepFakeV2 v2.0, time test split".
-- **Official metric:** macro-F1 over FALSE and MISLEADING on `test.csv`
-  (time split). Also report `random_test.csv` and the majority baseline. The
-  label balance moves a lot between years, so a time-split score alone mostly
-  measures that shift.
+- **Official task, split and metric: not fixed yet.** They are fixed at the
+  v2.0 freeze and written here. Until then the candidate is macro-F1 over
+  FALSE and MISLEADING, reported on both `test.csv` (time split) and
+  `random_test.csv`, with the majority baseline. The label balance moves a
+  lot between years, so a time-split score alone mostly measures that shift.
 - Score with `python -m pipeline.evaluate predictions.csv` (add `--random`
   for the control split). It refuses predictions that do not cover exactly
   the release rows, and it prints the release name next to the score.
