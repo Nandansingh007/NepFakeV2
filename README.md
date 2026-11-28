@@ -209,42 +209,42 @@ flowchart LR
 
 | | |
 |---|---|
-| 🗃 Raw articles scraped | **966** |
-| ✅ Normalized examples | **940** |
-| 📅 Date range | 2020-03-13 → 2026-11-20 |
-| 🕒 Last updated | 2026-11-28 07:57 UTC |
+| 🗃 Raw articles scraped | **1931** |
+| ✅ Normalized examples | **945** |
+| 📅 Date range | 2020-03-13 → 2026-11-26 |
+| 🕒 Last updated | 2026-11-28 10:57 UTC |
 
-**Last run:** 2026-11-23 &nbsp;|&nbsp; ✓ TechPana: +1 new &nbsp;|&nbsp; ✓ NepalFactCheck: +4 new
-> **26 articles left out** (explainer 22, not_a_factcheck 4). Each is listed with its reason in `data/excluded.csv`.
+**Last run:** 2026-11-28 &nbsp;|&nbsp; ✓ TechPana: +275 new &nbsp;|&nbsp; ✓ NepalFactCheck: +690 new
+> **27 articles left out** (explainer 22, not_a_factcheck 4, verdict_unmappable 1). Each is listed with its reason in `data/excluded.csv`.
 
 ### Label Distribution (normalized)
 
 | Label | Count | % |
 |-------|------:|--:|
 | REAL                 |    17 |   1.8% |
-| FALSE_MISLEADING     |   897 |  95.4% |
-| UNVERIFIED           |    26 |   2.8% |
+| FALSE_MISLEADING     |   901 |  95.3% |
+| UNVERIFIED           |    27 |   2.9% |
 | UNKNOWN              |     0 |   0.0% |
 
 ### Fine Labels (normalized, `label_fine`)
 
 | Source | FALSE | MISLEADING | MIXED | TRUE | UNVERIFIED |
 |--------|------:|-----------:|------:|-----:|-----------:|
-| NepalFactCheck   |  273 |  364 |    0 |    8 |   21 |
-| TechPana         |   63 |  174 |   23 |    9 |    5 |
+| NepalFactCheck   |  274 |  364 |    0 |    8 |   22 |
+| TechPana         |   66 |  174 |   23 |    9 |    5 |
 
-Main benchmark (FALSE vs MISLEADING, `in_main_benchmark`): **830** rows (319 FALSE, 511 MISLEADING)
+Main benchmark (FALSE vs MISLEADING, `in_main_benchmark`): **839** rows (324 FALSE, 515 MISLEADING)
 
-Splits (provisional until the freeze): time `split` test 390, train 358, dev 192; random control `split_random` train 667, test 173, dev 100
+Splits (provisional until the freeze): time `split` test 395, train 358, dev 192; random control `split_random` train 668, test 176, dev 101
 
 ### Source Breakdown (raw)
 
 | Source | Articles | Verdict profile |
 |--------|----------:|-----------------|
-| TechPana         |  278 | भ्रामक: 56%  मिथ्या: 41%  अपुष्ट: 2%  सही: 1%  unmapped: 0%  ⚠ 1 unmapped |
-| NepalFactCheck   |  688 | भ्रामक: 53%  मिथ्या: 34%  सही: 9%  अपुष्ट: 3% |
+| TechPana         |  553 | भ्रामक: 60%  मिथ्या: 31%  unmapped: 5%  सही: 2%  अपुष्ट: 2%  ⚠ 28 unmapped |
+| NepalFactCheck   | 1378 | भ्रामक: 53%  मिथ्या: 37%  सही: 7%  अपुष्ट: 3% |
 
-Nepali script coverage: **99.4%**
+Nepali script coverage: **99.3%**
 <!-- STATS_END -->
 
 ## Data corrections
