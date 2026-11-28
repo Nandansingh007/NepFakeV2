@@ -5,12 +5,14 @@
     "techpana": {
       "status": "success",
       "articles_scraped": 275,
+      "new_articles": 4,
       "last_run_date": "2026-11-28",
       "last_published_date": "2026-11-25"
     },
     "nepalfactcheck": {
       "status": "success",
       "articles_scraped": 690,
+      "new_articles": 2,
       "last_run_date": "2026-11-28",
       "last_published_date": "2026-11-26"
     }

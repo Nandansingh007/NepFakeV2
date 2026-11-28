@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-11-28T10:57:10.750375+00:00",
+  "last_updated": "2026-11-28T11:49:19.218051+00:00",
   "total_examples": 945,
   "total_including_unknown": 972,
   "excluded": {
@@ -9,12 +9,12 @@
   },
   "label_distribution": {
     "REAL": {
-      "count": 17,
-      "pct": "1.8%"
+      "count": 16,
+      "pct": "1.7%"
     },
     "FALSE_MISLEADING": {
-      "count": 901,
-      "pct": "95.3%"
+      "count": 902,
+      "pct": "95.4%"
     },
     "UNVERIFIED": {
       "count": 27,
@@ -33,16 +33,16 @@
   },
   "topic_distribution": {
     "politics": {
-      "count": 468,
-      "pct": "49.5%"
+      "count": 469,
+      "pct": "49.6%"
     },
     "other": {
       "count": 226,
       "pct": "23.9%"
     },
     "technology": {
-      "count": 99,
-      "pct": "10.5%"
+      "count": 98,
+      "pct": "10.4%"
     },
     "health": {
       "count": 72,
@@ -73,42 +73,42 @@
       "pct": "70.4%"
     },
     "conclusion": {
-      "count": 199,
-      "pct": "21.1%"
+      "count": 204,
+      "pct": "21.6%"
     },
     "stored": {
-      "count": 42,
-      "pct": "4.4%"
-    },
-    "conclusion_mixed": {
-      "count": 23,
-      "pct": "2.4%"
+      "count": 37,
+      "pct": "3.9%"
     },
     "summary": {
-      "count": 16,
-      "pct": "1.7%"
+      "count": 15,
+      "pct": "1.6%"
+    },
+    "conclusion_mixed": {
+      "count": 13,
+      "pct": "1.4%"
+    },
+    "conclusion_claim": {
+      "count": 11,
+      "pct": "1.2%"
     }
   },
   "label_fine_distribution": {
     "MISLEADING": {
-      "count": 538,
-      "pct": "56.9%"
+      "count": 549,
+      "pct": "58.1%"
     },
     "FALSE": {
-      "count": 340,
-      "pct": "36.0%"
+      "count": 353,
+      "pct": "37.4%"
     },
     "UNVERIFIED": {
       "count": 27,
       "pct": "2.9%"
     },
-    "MIXED": {
-      "count": 23,
-      "pct": "2.4%"
-    },
     "TRUE": {
-      "count": 17,
-      "pct": "1.8%"
+      "count": 16,
+      "pct": "1.7%"
     }
   },
   "label_fine_by_source": {
@@ -119,17 +119,16 @@
       "TRUE": 8
     },
     "techpana": {
-      "MISLEADING": 174,
-      "FALSE": 66,
-      "MIXED": 23,
-      "TRUE": 9,
+      "MISLEADING": 185,
+      "FALSE": 79,
+      "TRUE": 8,
       "UNVERIFIED": 5
     }
   },
   "main_benchmark": {
-    "total": 839,
-    "FALSE": 324,
-    "MISLEADING": 515
+    "total": 868,
+    "FALSE": 338,
+    "MISLEADING": 530
   },
   "claim_source_distribution": {
     "claim_box": 546,

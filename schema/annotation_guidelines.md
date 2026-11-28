@@ -33,7 +33,8 @@ NepalFactCheck explainers (header tag `एक्सप्लेनर`) explain 
 | NepalFactCheck | header tag names one verdict | `nfc_header` |
 | | otherwise: the value the scraper stored | `stored` |
 | TechPana | the conclusion names exactly one verdict | `conclusion` |
-| | the conclusion names both मिथ्या and भ्रामक | `conclusion_mixed` |
+| | the conclusion names both मिथ्या and भ्रामक, its sentence about the claim (दाबी) names one | `conclusion_claim` |
+| | the conclusion names both, and so does the claim sentence (or there is none): MISLEADING | `conclusion_mixed` |
 | | the lead summary's finding sentence names one verdict | `summary` |
 | | otherwise: the value the scraper stored (the image badge) | `stored` |
 | any | a person checked it (`data_validation/reference_labels.csv`) | `hand_checked` (overrides all of the above) |
@@ -42,7 +43,7 @@ Word rules (`scrapers/techpana.py`, `pipeline/label_mapper.py`):
 - Whole words only. `भ्रम` does not match `भ्रमण` (travel).
 - A negated "true" is not a verdict: "सही होइन", "सत्य छैन" and similar are ignored.
 - If a verdict text names two different verdicts, it gets no label (it is not "first word wins").
-- `गलत` (wrong) counts as MISLEADING. Fact-checkers mostly use it in "गलत सन्दर्भ" (wrong context).
+- `गलत` (wrong) depends on the next word (28 Nov 2026): "दाबी गलत हो / रहेको / भएको" (the claim is wrong) counts as FALSE; "गलत सन्दर्भ / अर्थ / व्याख्या / तरिका" (wrong context or meaning) counts as MISLEADING; "गलत सूचना / प्रचार" (misinformation in general) is not a verdict.
 - Known weakness: `भ्रम` also matches the phrase "भ्रम फैलाइएको" (spread confusion), which is not a verdict. It can make a conclusion look mixed.
 
 `stored` labels are the weakest. For TechPana files scraped before 12 Oct 2026, the stored badge may even belong to a different article in the sidebar.
@@ -63,9 +64,8 @@ Word rules (`scrapers/techpana.py`, `pipeline/label_mapper.py`):
 
 | `label_fine` | Nepali verdicts | Coarse |
 |---|---|---|
-| FALSE | मिथ्या, मिथ्या सूचना, झुटो, असत्य | 1 |
-| MISLEADING | भ्रामक, भ्रामक सूचना, भ्रम, गलत | 1 |
-| MIXED | the TechPana conclusion names both मिथ्या and भ्रामक | 1 |
+| FALSE | मिथ्या, मिथ्या सूचना, झुटो, असत्य, "दाबी गलत हो" | 1 |
+| MISLEADING | भ्रामक, भ्रामक सूचना, भ्रम, "गलत सन्दर्भ / अर्थ" | 1 |
 | TRUE | सही, सही सूचना, साँचो, सत्य | 0 |
 | UNVERIFIED | अपुष्ट, अपुष्ट सूचना | 2 |
 
@@ -90,9 +90,9 @@ Use this when the fact-checker's own wording is unclear (see section 5), and whe
 
 **Be honest about the ceiling.** The fact-checkers do not apply this line consistently. In 9 TechPana articles the summary and the conclusion give different verdicts, and 23 conclusions name both. A model's FALSE-vs-MISLEADING score has a ceiling set by this disagreement. Report it.
 
-### 4.4 MIXED
+### 4.4 Both मिथ्या and भ्रामक (no MIXED label since 28 Nov 2026)
 
-MIXED means the fact-checker named both labels in the conclusion (for example "दाबी पूर्णतः भ्रामक र मिथ्या हो"). Do **not** pick one using the summary or the badge. The row keeps the coarse label FALSE_MISLEADING and is left out of the main benchmark.
+When a TechPana conclusion names both, only its sentences about the claim (containing दाबी) are read. If they name one, that one is used (`conclusion_claim`; e.g. "… दाबी मिथ्या हो" with भ्रामक only in "भ्रामक पोस्ट"). If they name both (e.g. "दाबी पूर्णतः भ्रामक र मिथ्या हो") or there is no such sentence, the row is MISLEADING (`conclusion_mixed`) and stays in the main benchmark. The summary and the badge are never used to decide. In the hand check, mark such an article `BOTH`; it is stored as MISLEADING.
 
 ### 4.5 UNKNOWN (-1) and explainers: dropped
 
@@ -105,7 +105,7 @@ MIXED means the fact-checker named both labels in the conclusion (for example "�
 
 The main task is binary FALSE vs MISLEADING. A row is in it when:
 1. `label_fine` is FALSE or MISLEADING, **and**
-2. `label_source` is not `conclusion_mixed` and not `stored`. The verdict must have been read from the article text (or checked by a person), **and**
+2. `label_source` is not `stored`. The verdict must have been read from the article text (or checked by a person), **and**
 3. `language` is `ne`. The few English TechPana articles are left out.
 
 Excluded rows stay in the dataset with `in_main_benchmark = False`. TRUE and UNVERIFIED are excluded because the task is binary. `stored` rows can come back once a person has checked them (section 6).
@@ -130,7 +130,7 @@ Save them as `data_validation/reference_labels.csv` with the columns `source_url
 Then run `python -m pipeline.rebuild` and the tests:
 - **The reference-label test** compares the pipeline's own labels (without your corrections) to yours and needs at least 90% agreement on rows whose verdict was read from the text. Report this number.
 - `python -m pipeline.agreement data_validation/reference_labels.csv` prints the agreement, Cohen's kappa and the confusion table.
-- Your labels then **override** the pipeline: `label_source` becomes `hand_checked`, `BOTH` becomes MIXED, and `NOT_A_FACTCHECK` rows move to `data/excluded.csv`. Hand-checked FALSE/MISLEADING rows enter the main benchmark, including the former `stored` ones.
+- Your labels then **override** the pipeline: `label_source` becomes `hand_checked`, `BOTH` becomes MISLEADING, and `NOT_A_FACTCHECK` rows move to `data/excluded.csv`. Hand-checked FALSE/MISLEADING rows enter the main benchmark, including the former `stored` ones.
 
 The file is keyed by `source_url`, which never changes.
 

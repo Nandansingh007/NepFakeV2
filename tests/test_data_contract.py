@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from utils.helpers import canonical_url
+from utils.helpers import canonical_url, snapshot_files
 
 pytestmark = pytest.mark.data
 
@@ -27,7 +27,7 @@ SOURCES = ["techpana", "nepalfactcheck"]
 def _raw_articles():
     keys = set()
     for s in SOURCES:
-        for f in sorted(Path("raw", s).glob("*.json")):
+        for f, _ in snapshot_files(Path("raw", s)):   # live + raw/archive/
             for r in json.loads(f.read_text(encoding="utf-8")):
                 keys.add((s, canonical_url(r["source_url"])))
     return keys
@@ -92,9 +92,31 @@ def test_weaker_rows_are_flagged(layers):
     assert (d.loc[~conflict, "snapshot_other_label"] == "").all()
 
 
+def _archived_unchanged(path: str) -> bool:
+    """raw/<source>/<f>.json was moved to raw/archive/<source>/<f>.json with
+    the same content as the committed file. Compared as git sees it (git
+    hash-object applies the same line-ending rules as git status), so a
+    Windows checkout with core.autocrlf, where the files on disk have CRLF,
+    is not reported as an edit."""
+    p = Path(path)
+    if p.parts[:1] != ("raw",) or "archive" in p.parts:
+        return False
+    archived = Path("raw", "archive", *p.parts[1:])
+    if not archived.exists():
+        return False
+    git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True,
+                                    check=True).stdout.strip()
+    try:
+        return git("hash-object", archived.as_posix()) == git("rev-parse", f"HEAD:{p.as_posix()}")
+    except subprocess.CalledProcessError:
+        return False
+
+
 def test_raw_files_are_never_edited():
     # Older raw files may only be added, never changed. Today's file may grow
-    # (a second run on the same day). Skips outside a git checkout.
+    # (a second run on the same day). A live file may disappear only by being
+    # moved, byte for byte, to raw/archive/<source>/ (pipeline/archive.py).
+    # Skips outside a git checkout.
     try:
         out = subprocess.run(["git", "status", "--porcelain", "--", "raw"],
                              capture_output=True, text=True, check=True).stdout
@@ -107,5 +129,7 @@ def test_raw_files_are_never_edited():
         name = Path(path).stem
         if ("M" in status or "D" in status) and path.endswith(".json") \
                 and name[:4].isdigit() and name < today:
+            if status.strip() == "D" and _archived_unchanged(path):
+                continue
             edited.append(line)
     assert not edited, f"raw files edited or deleted: {edited}"

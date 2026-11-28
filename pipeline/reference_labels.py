@@ -15,7 +15,7 @@
 #
 # When it exists, the normalizer uses it as an override:
 #     FALSE / MISLEADING / TRUE / UNVERIFIED -> that label, label_source "hand_checked"
-#     BOTH                                   -> MIXED,      label_source "hand_checked"
+#     BOTH                                   -> MISLEADING,      label_source "hand_checked"
 #     NOT_A_FACTCHECK                        -> row excluded, reason "hand_checked_not_factcheck"
 # Rows with an empty label are ignored (sheet not finished).
 # =============================================================================
@@ -52,7 +52,7 @@ def load_reference_labels(path: Path = None) -> dict:
 
 def fine_label(reference: str) -> str:
     """Reference label -> label_fine ("" for NOT_A_FACTCHECK)."""
-    return {"BOTH": "MIXED", "NOT_A_FACTCHECK": ""}.get(reference, reference)
+    return {"BOTH": "MISLEADING", "NOT_A_FACTCHECK": ""}.get(reference, reference)
 
 
 # =============================================================================

@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from utils.helpers import snapshot_files
+
 pytestmark = pytest.mark.data
 
 RAW_DIRS = {
@@ -26,7 +28,7 @@ REQUIRED_FIELDS = [
 def _load(raw_dir):
     p = Path(raw_dir)
     assert p.exists(), f"raw directory missing: {raw_dir}"
-    files = sorted(p.glob("*.json"))
+    files = [f for f, _ in snapshot_files(p)]   # live + raw/archive/
     assert files, f"no JSON files in {raw_dir}"
     articles = []
     for f in files:
@@ -71,7 +73,7 @@ def test_no_duplicate_urls_within_a_file(name):
     # must not (save_raw keeps the newest record per URL).
     from utils.helpers import canonical_url
     bad = []
-    for f in sorted(Path(RAW_DIRS[name]).glob("*.json")):
+    for f in [f for f, _ in snapshot_files(RAW_DIRS[name])]:
         urls = [canonical_url(a["source_url"]) for a in json.loads(f.read_text(encoding="utf-8"))]
         if len(urls) != len(set(urls)):
             bad.append((f.name, len(urls) - len(set(urls))))
@@ -82,7 +84,7 @@ def test_no_duplicate_urls_within_a_file(name):
 def test_snapshot_date_matches_file_name(name):
     # date_scraped is what dedup uses to find the newest snapshot
     bad = []
-    for f in sorted(Path(RAW_DIRS[name]).glob("*.json")):
+    for f in [f for f, _ in snapshot_files(RAW_DIRS[name])]:
         for a in json.loads(f.read_text(encoding="utf-8")):
             if a.get("date_scraped") != f.stem:
                 bad.append((f.name, a["source_url"], a.get("date_scraped")))
@@ -115,6 +117,11 @@ def test_stats_raw_total_matches():
     path = Path("raw/stats_raw.json")
     assert path.exists(), "raw/stats_raw.json missing"
     stats = json.loads(path.read_text(encoding="utf-8"))
-    total = sum(len(_load(d)) for d in RAW_DIRS.values())
-    if stats.get("total_raw_articles", 0) != total:
-        warnings.warn(f"stats_raw.json total ({stats.get('total_raw_articles')}) != actual ({total})")
+    # total_raw_articles counts unique articles, total_raw_snapshots records
+    from utils.helpers import canonical_url
+    records = [r for d in RAW_DIRS.values() for r in _load(d)]
+    unique = len({canonical_url(r["source_url"]) for r in records})
+    if stats.get("total_raw_articles", 0) != unique:
+        warnings.warn(f"stats_raw.json total ({stats.get('total_raw_articles')}) != unique articles ({unique})")
+    if stats.get("total_raw_snapshots", len(records)) != len(records):
+        warnings.warn(f"stats_raw.json snapshots ({stats.get('total_raw_snapshots')}) != records ({len(records)})")

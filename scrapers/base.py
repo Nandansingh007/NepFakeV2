@@ -39,6 +39,7 @@ from config.settings import (
     REQUEST_TIMEOUT,
 )
 from schema.schema import RawArticle
+from utils.helpers import canonical_url, snapshot_files
 
 
 class BaseScraper(ABC):
@@ -66,6 +67,7 @@ class BaseScraper(ABC):
         self.session = self._build_session()
         self.articles_scraped = 0
         self.articles_skipped = 0
+        self.unlisted_refetched = 0
 
         # Create FlareSolverr session for TechPana (reuse across requests)
         if self.source_name == "techpana":
@@ -179,14 +181,18 @@ class BaseScraper(ABC):
 
     def is_before_cutoff(self, date_iso: str) -> bool:
         """
-        Check if a date is at or before the cutoff (should be skipped).
+        Check if a date is BEFORE the cutoff (stop pagination).
+        The cutoff day itself is not skipped (28 Nov 2026): an article
+        published later on that day, after the run, used to be skipped by
+        every later weekly run. Articles of that day already in raw are not
+        fetched again (paginate skips known URLs).
         Called with listing-page date BEFORE fetching the article.
 
         Args:
             date_iso: ISO date "YYYY-MM-DD" from listing page
 
         Returns:
-            True  → date is old, stop pagination
+            True  → date is older than the cutoff, stop pagination
             False → date is new, proceed to fetch article
         """
         if not self.last_published_date:
@@ -195,7 +201,7 @@ class BaseScraper(ABC):
         if not date_iso:
             return False
 
-        return date_iso <= self.last_published_date
+        return date_iso < self.last_published_date
 
     # -------------------------------------------------------------------------
     # HTTP REQUEST
@@ -359,6 +365,15 @@ class BaseScraper(ABC):
         page = self.config["start_page"]
         stop = False
         seen_page_urls = set()
+        # Every URL fetched this run, kept or skipped. TechPana repeats the
+        # same "latest news" cards on every listing page; without this the 28
+        # Nov 2026 full re-scrape fetched those 6 non-fact-checks again on
+        # each of 45 pages (~11 s each, about 50 minutes).
+        tried = set()
+        # Weekly (incremental) runs: articles already in raw are not fetched
+        # again. A full re-scrape fetches everything.
+        if self.last_published_date:
+            tried.update(self.known_urls())
 
         while not stop:
             page_url = self.config["list_url_template"].format(page=page)
@@ -386,7 +401,7 @@ class BaseScraper(ABC):
 
             page_articles = []
             for url, date_iso in link_tuples:
-                if url not in {a.source_url for a in all_articles}:
+                if canonical_url(url) not in tried:
 
                     # Cutoff check BEFORE fetching — saves one HTTP request
                     # per old article (important with crawl-delay=10s)
@@ -399,6 +414,7 @@ class BaseScraper(ABC):
                         stop = True
                         break
 
+                    tried.add(canonical_url(url))
                     article = self.scrape_article(url)
 
                     if article is None:
@@ -415,12 +431,53 @@ class BaseScraper(ABC):
             )
             page += 1
 
+        if os.environ.get("NEPFAKE_FULL_RESCRAPE") == "1":
+            all_articles.extend(self.refetch_unlisted(tried))
+
         self.logger.info(
             f"{self.source_name} complete — "
             f"scraped: {self.articles_scraped}, "
             f"skipped: {self.articles_skipped}"
         )
         return all_articles
+
+    def known_urls(self) -> dict:
+        """{canonical URL: stored URL} of every article in raw, live and archive."""
+        known = {}
+        for json_file, _ in snapshot_files(self.raw_dir):
+            try:
+                records = json.loads(Path(json_file).read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, IOError):
+                continue
+            for r in records:
+                u = r.get("source_url", "")
+                if u:
+                    known.setdefault(canonical_url(u), u)
+        return known
+
+    def refetch_unlisted(self, tried: set) -> list:
+        """Full re-scrape only: fetch directly every article already in raw
+        that the listing pages did not show this time (28 Nov 2026: 7
+        TechPana URLs, e.g. 159035, were no longer listed and kept only
+        their September copy). An article that is gone or no longer a
+        fact-check returns None and keeps its archived copy."""
+        missing = {k: u for k, u in self.known_urls().items() if k not in tried}
+        if not missing:
+            return []
+        self.logger.info(f"{len(missing)} articles in raw were not on the listing "
+                         f"pages, fetching them directly")
+        out = []
+        for key, url in sorted(missing.items()):
+            tried.add(key)
+            article = self.scrape_article(url)
+            if article is None:
+                self.articles_skipped += 1
+                self.logger.warning(f"Not listed and not fetched (archived copy kept): {url}")
+                continue
+            self.articles_scraped += 1
+            out.append(article)
+        self.unlisted_refetched = len(out)
+        return out
 
     # -------------------------------------------------------------------------
     # ABSTRACT METHODS

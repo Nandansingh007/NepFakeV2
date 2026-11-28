@@ -91,9 +91,8 @@ df = pd.read_csv(
 
 | `label_fine` | Nepali verdict | Meaning | Coarse label |
 |---|---|---|---|
-| FALSE | मिथ्या (also झुटो, असत्य) | The claim is fabricated or untrue | 1 |
-| MISLEADING | भ्रामक (also भ्रम, गलत) | Real content in a wrong context, or a distorted claim | 1 |
-| MIXED | both मिथ्या and भ्रामक | The TechPana conclusion names both; no single fine label | 1 |
+| FALSE | मिथ्या (also झुटो, असत्य, "दाबी गलत हो") | The claim is fabricated or untrue | 1 |
+| MISLEADING | भ्रामक (also भ्रम, "गलत सन्दर्भ / अर्थ / व्याख्या") | Real content in a wrong context, or a distorted claim | 1 |
 | TRUE | सही (also साँचो, सत्य) | The claim is accurate | 0 |
 | UNVERIFIED | अपुष्ट | Could not be confirmed or refuted | 2 |
 
@@ -101,7 +100,7 @@ df = pd.read_csv(
 
 Every row is one professional fact-check of a claim that circulated in Nepal. Each row has the claim, the article's evidence, the verdict, who made the claim (when the outlet names them), the outlet, the URL and the date. The data can be used for:
 
-- **Falsity type: FALSE vs MISLEADING.** Rows with `in_main_benchmark == True`: fine label FALSE or MISLEADING, verdict read from the article text (or hand-checked), article in Nepali. MIXED rows, badge-only rows (`label_source == "stored"`) and the English rows are left out. Almost every row is a debunk (TRUE 17, UNVERIFIED 26), so this asks *how* a claim is wrong, not *whether* it is.
+- **Falsity type: FALSE vs MISLEADING.** Rows with `in_main_benchmark == True`: fine label FALSE or MISLEADING, verdict read from the article text (or hand-checked), article in Nepali. Badge-only rows (`label_source == "stored"`) and the English rows are left out. A TechPana conclusion that names both मिथ्या and भ्रामक takes the verdict of its sentence about the claim (`conclusion_claim`); if that names both too, it is MISLEADING (`conclusion_mixed`, in the benchmark; drop these rows with a filter on `label_source` if you want only single-verdict rows). Almost every row is a debunk (TRUE 17, UNVERIFIED 26), so this asks *how* a claim is wrong, not *whether* it is.
 - **Claim + evidence.** `claim_text` with `evidence_text` (the article's own reasoning, verdict sentences removed).
 - **Claim only.** `claim_text` alone. On FALSE vs MISLEADING this is much harder: the difference usually lies in what the media really is (old, edited, from elsewhere), which the claim does not say.
 - **Claimant.** `claimant`: who made the claim, as the fact-checker names it (NepalFactCheck rows).
@@ -148,14 +147,15 @@ Details and the exact reasons: the DATASHEET in the GitHub repository, "Data con
 | `headline` | string | The fact-checker's headline. **Usually states the verdict: not a model input** |
 | `verdict_label` | int | 0 / 1 / 2 (coarse label) |
 | `verdict_label_text` | string | REAL / FALSE_MISLEADING / UNVERIFIED |
-| `label_fine` | string | FALSE / MISLEADING / MIXED / TRUE / UNVERIFIED (see Labels) |
-| `label_source` | string | Where the verdict was read: `nfc_header`, `conclusion`, `conclusion_mixed`, `summary`, `stored` (scraper's badge only), `hand_checked` (a person read the article) |
+| `label_fine` | string | FALSE / MISLEADING / TRUE / UNVERIFIED (see Labels) |
+| `label_source` | string | Where the verdict was read: `nfc_header`, `conclusion`, `conclusion_claim`, `conclusion_mixed`, `summary`, `stored` (scraper's badge only), `hand_checked` (a person read the article) |
 | `verified` | string | `gold`: a person checked the label (`label_source == "hand_checked"`). `silver`: read from the article by rules only. Score gold rows with `python -m pipeline.evaluate … --gold` |
 | `snapshot_conflict` | bool | `True` if another snapshot of the same article had a different `label_fine`. The copy used is chosen by a fixed rule (DATASHEET, "Redundancy") and used whole |
 | `snapshot_other_label` | string | `label_fine` of the other snapshot(s), several separated by a vertical bar; empty if none |
+| `snapshot_source` | string | `live`: the copy comes from `raw/<source>/` (latest full re-scrape and later weekly runs). `archive`: from `raw/archive/`, used only when no live copy is usable (live copy has no verdict, or the article was not fetched again) |
 | `in_main_benchmark` | bool | True if the row belongs to the main FALSE-vs-MISLEADING task |
-| `benchmark_exclusion_reason` | string | Why the row is not in the benchmark, empty if it is: `label_<LABEL>`, `label_source_stored`, `label_source_conclusion_mixed`, `language_en`, `page_cut` (several separated by a vertical bar) |
-| `evidence_text` | string | Article body without header, conclusion (TechPana `निष्कर्ष`, NepalFactCheck's `दावी / दावीकर्ता / तथ्य` summary box), footer, and without any sentence that states the verdict |
+| `benchmark_exclusion_reason` | string | Why the row is not in the benchmark, empty if it is: `label_<LABEL>`, `label_source_stored`, `language_en`, `page_cut` (several separated by a vertical bar) |
+| `evidence_text` | string | Article body without header, conclusion (TechPana `निष्कर्ष`, NepalFactCheck's `दावी / दावीकर्ता / तथ्य` summary box), footer, and without any sentence that states the verdict. Links removed (they are in `external_evidence_urls`) and the outlet's own name replaced by `[OUTLET]` |
 | `conclusion_text` | string | The fact-checker's conclusion. **States the verdict: not a model input** |
 | `external_evidence_urls` | string | Links in the article, `" \| "`-separated, without share buttons and the outlet's own pages |
 | `source_name` | string | techpana / nepalfactcheck |

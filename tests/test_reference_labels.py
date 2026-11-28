@@ -62,7 +62,8 @@ def test_override_sets_label_and_source():
     assert (ex.label_fine, ex.verdict_label, ex.label_source) == ("FALSE", 1, "hand_checked")
     assert ex.in_main_benchmark is True
     ex = normalize_article(_raw(), {"https://nepalfactcheck.org/2026/01/a": "BOTH"})
-    assert (ex.label_fine, ex.in_main_benchmark) == ("MIXED", False)
+    # BOTH = MISLEADING since 28 Nov 2026 (no MIXED label); a person read it
+    assert (ex.label_fine, ex.label_source, ex.in_main_benchmark) == ("MISLEADING", "hand_checked", True)
 
 
 def test_not_a_factcheck_is_excluded_with_reason():

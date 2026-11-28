@@ -77,9 +77,8 @@ Raw verdicts are kept in the original Nepali (e.g. भ्रामक, मिथ
 
 | `label_fine` | Nepali verdict | Meaning | Coarse label |
 |---|---|---|---|
-| FALSE | मिथ्या (also झुटो, असत्य) | The claim is fabricated or untrue | 1 |
-| MISLEADING | भ्रामक (also भ्रम, गलत) | Real content in a wrong context, or a distorted claim | 1 |
-| MIXED | both मिथ्या and भ्रामक | The TechPana conclusion names both; no single fine label | 1 |
+| FALSE | मिथ्या (also झुटो, असत्य, "दाबी गलत हो") | The claim is fabricated or untrue | 1 |
+| MISLEADING | भ्रामक (also भ्रम, "गलत सन्दर्भ / अर्थ / व्याख्या") | Real content in a wrong context, or a distorted claim | 1 |
 | TRUE | सही (also साँचो, सत्य) | The claim is accurate | 0 |
 | UNVERIFIED | अपुष्ट | Could not be confirmed or refuted | 2 |
 
@@ -87,7 +86,7 @@ Raw verdicts are kept in the original Nepali (e.g. भ्रामक, मिथ
 
 Every row is one professional fact-check of a claim that circulated in Nepal. Each row has the claim, the article's evidence, the verdict, who made the claim (when the outlet names them), the outlet, the URL and the date. The data can be used for:
 
-- **Falsity type: FALSE vs MISLEADING.** Rows with `in_main_benchmark == True`: fine label FALSE or MISLEADING, verdict read from the article text (or hand-checked), article in Nepali. MIXED rows, badge-only rows (`label_source == "stored"`) and the English rows are left out. Almost every row is a debunk (TRUE 17, UNVERIFIED 26), so this asks *how* a claim is wrong, not *whether* it is.
+- **Falsity type: FALSE vs MISLEADING.** Rows with `in_main_benchmark == True`: fine label FALSE or MISLEADING, verdict read from the article text (or hand-checked), article in Nepali. Badge-only rows (`label_source == "stored"`) and the English rows are left out. A TechPana conclusion that names both मिथ्या and भ्रामक takes the verdict of its sentence about the claim (`conclusion_claim`); if that names both too, it is MISLEADING (`conclusion_mixed`, in the benchmark; drop these rows with a filter on `label_source` if you want only single-verdict rows). Almost every row is a debunk (TRUE 17, UNVERIFIED 26), so this asks *how* a claim is wrong, not *whether* it is.
 - **Claim + evidence.** `claim_text` with `evidence_text` (the article's own reasoning, verdict sentences removed).
 - **Claim only.** `claim_text` alone. On FALSE vs MISLEADING this is much harder: the difference usually lies in what the media really is (old, edited, from elsewhere), which the claim does not say.
 - **Claimant.** `claimant`: who made the claim, as the fact-checker names it (NepalFactCheck rows).
@@ -138,14 +137,15 @@ Details and the exact reasons: [DATASHEET.md](DATASHEET.md), "Data contract".
 | `headline` | str | The fact-checker's headline. **Usually states the verdict: not a model input** |
 | `verdict_label` | int | 0 / 1 / 2 (coarse label) |
 | `verdict_label_text` | str | REAL / FALSE_MISLEADING / UNVERIFIED |
-| `label_fine` | str | FALSE / MISLEADING / MIXED / TRUE / UNVERIFIED (see Labels) |
-| `label_source` | str | Where the verdict was read: `nfc_header`, `conclusion`, `conclusion_mixed`, `summary`, `stored` (scraper's badge only), `hand_checked` (a person read the article) |
+| `label_fine` | str | FALSE / MISLEADING / TRUE / UNVERIFIED (see Labels) |
+| `label_source` | str | Where the verdict was read: `nfc_header`, `conclusion`, `conclusion_claim`, `conclusion_mixed`, `summary`, `stored` (scraper's badge only), `hand_checked` (a person read the article) |
 | `verified` | str | `gold`: a person checked the label (`label_source == "hand_checked"`). `silver`: read from the article by rules only. Score gold rows with `python -m pipeline.evaluate … --gold` |
 | `snapshot_conflict` | bool | `True` if another snapshot of the same article had a different `label_fine`. The copy used is chosen by a fixed rule (DATASHEET, "Redundancy") and used whole |
 | `snapshot_other_label` | str | `label_fine` of the other snapshot(s), several separated by a vertical bar; empty if none |
+| `snapshot_source` | str | `live`: the copy comes from `raw/<source>/` (latest full re-scrape and later weekly runs). `archive`: from `raw/archive/`, used only when no live copy is usable (live copy has no verdict, or the article was not fetched again) |
 | `in_main_benchmark` | bool | True if the row belongs to the main FALSE-vs-MISLEADING task |
-| `benchmark_exclusion_reason` | str | Why the row is not in the benchmark, empty if it is: `label_<LABEL>`, `label_source_stored`, `label_source_conclusion_mixed`, `language_en`, `page_cut` (several separated by a vertical bar) |
-| `evidence_text` | str | Article body without header, conclusion (TechPana `निष्कर्ष`, NepalFactCheck's `दावी / दावीकर्ता / तथ्य` summary box), footer, and without any sentence that states the verdict |
+| `benchmark_exclusion_reason` | str | Why the row is not in the benchmark, empty if it is: `label_<LABEL>`, `label_source_stored`, `language_en`, `page_cut` (several separated by a vertical bar) |
+| `evidence_text` | str | Article body without header, conclusion (TechPana `निष्कर्ष`, NepalFactCheck's `दावी / दावीकर्ता / तथ्य` summary box), footer, and without any sentence that states the verdict. Links removed (they are in `external_evidence_urls`) and the outlet's own name replaced by `[OUTLET]` |
 | `conclusion_text` | str | The fact-checker's conclusion. **States the verdict: not a model input** |
 | `external_evidence_urls` | str | Links in the article, `" \| "`-separated, without share buttons and the outlet's own pages |
 | `source_name` | str | techpana / nepalfactcheck |
@@ -209,31 +209,31 @@ flowchart LR
 
 | | |
 |---|---|
-| 🗃 Raw articles scraped | **1931** |
+| 🗃 Raw articles scraped (unique URLs) | **972** (1931 stored snapshots) |
 | ✅ Normalized examples | **945** |
 | 📅 Date range | 2020-03-13 → 2026-11-26 |
-| 🕒 Last updated | 2026-11-28 10:57 UTC |
+| 🕒 Last updated | 2026-11-28 11:49 UTC |
 
-**Last run:** 2026-11-28 &nbsp;|&nbsp; ✓ TechPana: +275 new &nbsp;|&nbsp; ✓ NepalFactCheck: +690 new
+**Last run:** 2026-11-28 &nbsp;|&nbsp; ✓ TechPana: +4 new (275 fetched) &nbsp;|&nbsp; ✓ NepalFactCheck: +2 new (690 fetched)
 > **27 articles left out** (explainer 22, not_a_factcheck 4, verdict_unmappable 1). Each is listed with its reason in `data/excluded.csv`.
 
 ### Label Distribution (normalized)
 
 | Label | Count | % |
 |-------|------:|--:|
-| REAL                 |    17 |   1.8% |
-| FALSE_MISLEADING     |   901 |  95.3% |
+| REAL                 |    16 |   1.7% |
+| FALSE_MISLEADING     |   902 |  95.4% |
 | UNVERIFIED           |    27 |   2.9% |
 | UNKNOWN              |     0 |   0.0% |
 
 ### Fine Labels (normalized, `label_fine`)
 
-| Source | FALSE | MISLEADING | MIXED | TRUE | UNVERIFIED |
-|--------|------:|-----------:|------:|-----:|-----------:|
-| NepalFactCheck   |  274 |  364 |    0 |    8 |   22 |
-| TechPana         |   66 |  174 |   23 |    9 |    5 |
+| Source | FALSE | MISLEADING | TRUE | UNVERIFIED |
+|--------|------:|-----------:|-----:|-----------:|
+| NepalFactCheck   |  274 |  364 |    8 |   22 |
+| TechPana         |   79 |  185 |    8 |    5 |
 
-Main benchmark (FALSE vs MISLEADING, `in_main_benchmark`): **839** rows (324 FALSE, 515 MISLEADING)
+Main benchmark (FALSE vs MISLEADING, `in_main_benchmark`): **868** rows (338 FALSE, 530 MISLEADING)
 
 Splits (provisional until the freeze): time `split` test 395, train 358, dev 192; random control `split_random` train 668, test 176, dev 101
 
@@ -241,8 +241,8 @@ Splits (provisional until the freeze): time `split` test 395, train 358, dev 192
 
 | Source | Articles | Verdict profile |
 |--------|----------:|-----------------|
-| TechPana         |  553 | भ्रामक: 60%  मिथ्या: 31%  unmapped: 5%  सही: 2%  अपुष्ट: 2%  ⚠ 28 unmapped |
-| NepalFactCheck   | 1378 | भ्रामक: 53%  मिथ्या: 37%  सही: 7%  अपुष्ट: 3% |
+| TechPana         |  282 | भ्रामक: 62%  मिथ्या: 23%  unmapped: 10%  सही: 3%  अपुष्ट: 2%  ⚠ 27 unmapped |
+| NepalFactCheck   |  690 | भ्रामक: 53%  मिथ्या: 40%  सही: 4%  अपुष्ट: 3% |
 
 Nepali script coverage: **99.3%**
 <!-- STATS_END -->

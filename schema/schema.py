@@ -152,7 +152,8 @@ class NepFakeV2Example:
     # label_source "hand_checked"). silver: label read from the article by
     # the rules only. pipeline/evaluate.py --gold scores gold rows only.
     # Where the verdict was read (config/settings.py LABEL_SOURCES):
-    #   nfc_header / conclusion / conclusion_mixed / summary / stored /
+    #   nfc_header / conclusion / conclusion_claim / conclusion_mixed /
+    #   summary / stored /
     #   hand_checked
     snapshot_conflict: bool = False
     # True if another snapshot of the same article had a different label_fine
@@ -160,8 +161,13 @@ class NepFakeV2Example:
     # used whole). Listed in logs/snapshot_report.json after each build.
     snapshot_other_label: str = ""
     # label_fine of the other snapshot(s), several joined with "|"; "" if none
+    snapshot_source: str = "live"
+    # Where the kept copy is stored: "live" (raw/<source>/, the latest full
+    # re-scrape and the weekly runs after it) or "archive" (raw/archive/,
+    # used only when no live copy of the article is usable, e.g. the live copy
+    # has no verdict or the article was not listed in the latest scrape).
     label_fine: str = ""
-    # Fine label (schema 2.0): FALSE / MISLEADING / TRUE / UNVERIFIED / MIXED.
+    # Fine label (schema 2.0): FALSE / MISLEADING / TRUE / UNVERIFIED.
     # verdict_label stays the coarse label; see config/settings.py LABELS_FINE.
     in_main_benchmark: bool = False
     benchmark_exclusion_reason: str = ""
@@ -223,7 +229,7 @@ COLUMNS = [
     "example_id", "claim_text", "claim_source", "claimant", "claim_platform",
     "headline", "verdict_label", "verdict_label_text", "label_fine",
     "label_source", "verified", "snapshot_conflict", "snapshot_other_label",
-    "in_main_benchmark", "benchmark_exclusion_reason", "evidence_text", "conclusion_text",
+    "snapshot_source", "in_main_benchmark", "benchmark_exclusion_reason", "evidence_text", "conclusion_text",
     "external_evidence_urls", "source_name", "source_type", "source_url",
     "date_published", "date_precision", "date_scraped", "language",
     "is_native_nepali", "label_basis", "topic_category", "annotator_notes",

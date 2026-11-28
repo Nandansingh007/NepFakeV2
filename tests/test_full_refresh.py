@@ -109,9 +109,9 @@ def test_label_sheet_lists_rows_no_rule_could_read(tmp_path, monkeypatch):
 @pytest.mark.data
 def test_few_techpana_pages_cut_short():
     # Only files written since the check exists carry page_complete.
-    from pathlib import Path
     import warnings
-    records = [r for f in sorted(Path("raw/techpana").glob("*.json"))
+    from utils.helpers import snapshot_files
+    records = [r for f, _ in snapshot_files("raw/techpana")
                for r in json.loads(f.read_text(encoding="utf-8")) if "page_complete" in r]
     if not records:
         pytest.skip("no raw file written with the page check yet")
@@ -126,7 +126,7 @@ def test_few_techpana_pages_cut_short():
     (("MISLEADING", "nfc_header", "ne", True), ""),
     (("TRUE", "nfc_header", "ne", None), "label_TRUE"),
     (("FALSE", "stored", "en", None), "label_source_stored|language_en"),
-    (("MIXED", "conclusion_mixed", "ne", None), "label_MIXED|label_source_conclusion_mixed"),
+    (("MISLEADING", "conclusion_mixed", "ne", None), ""),      # in the benchmark since 28 Nov 2026
     (("FALSE", "conclusion", "ne", False), "page_cut"),
 ])
 def test_benchmark_reasons(args, expected):

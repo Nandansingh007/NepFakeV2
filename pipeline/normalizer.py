@@ -41,7 +41,7 @@ from pipeline.text_rules import devanagari_share
 from scrapers.techpana import (BS_MONTHS, parse_bs_date, extract_own_date,
                                is_factcheck_article, resolve_verdict)
 from scrapers.nepalfactcheck import extract_verdict_from_header, is_explainer
-from utils.helpers import canonical_url
+from utils.helpers import canonical_url, snapshot_files
 
 logger = logging.getLogger("nepfakev2.normalizer")
 
@@ -273,12 +273,8 @@ def normalize_article(raw: dict, references: Optional[dict] = None,
         raw_verdict, label_source = resolve_verdict(body_text, raw_verdict)
 
     verdict_label, verdict_label_text = map_verdict(raw_verdict)
-    if verdict_label == -1:
-        label_fine = ""
-    elif label_source == "conclusion_mixed":
-        label_fine = "MIXED"
-    else:
-        label_fine = map_verdict_fine(raw_verdict)
+    # conclusion_mixed: resolve_verdict already returned भ्रामक (MISLEADING)
+    label_fine = "" if verdict_label == -1 else map_verdict_fine(raw_verdict)
 
     # --- Hand-checked override (only once the reference file exists) ---
     reference = references.get(canonical_url(source_url))
@@ -339,6 +335,7 @@ def normalize_article(raw: dict, references: Optional[dict] = None,
         date_published=date_published,
         date_precision=date_precision,
         date_scraped=raw.get("date_scraped", "") or "",
+        snapshot_source=raw.get("_snapshot_source", "live"),
         language=language,
         is_native_nepali=(language == "ne"),
         label_basis="fact_checker_verdict",
@@ -349,13 +346,12 @@ def normalize_article(raw: dict, references: Optional[dict] = None,
 
 
 def load_raw(raw_dirs: dict = None) -> list[dict]:
-    """All raw records, source by source, files in name (= date) order."""
+    """All raw records, source by source, files in name (= date) order,
+    raw/archive/<source>/ included (each record tagged _snapshot_source
+    "archive" or "live")."""
     out = []
     for source_name, raw_dir in (raw_dirs or RAW_DIRS).items():
-        raw_dir = Path(raw_dir)
-        if not raw_dir.exists():
-            continue
-        for json_file in sorted(raw_dir.glob("*.json")):
+        for json_file, where in snapshot_files(raw_dir):
             try:
                 with open(json_file, "r", encoding="utf-8") as f:
                     records = json.load(f)
@@ -367,6 +363,7 @@ def load_raw(raw_dirs: dict = None) -> list[dict]:
                 r.setdefault("source_name", source_name)
                 # The file date is the snapshot date when the record lacks one
                 r["date_scraped"] = r.get("date_scraped") or json_file.stem
+                r["_snapshot_source"] = where
                 out.append(r)
     return out
 

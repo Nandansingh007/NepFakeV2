@@ -1,26 +1,29 @@
 {
-  "total_raw_articles": 1931,
+  "total_raw_articles": 972,
+  "total_raw_snapshots": 1931,
   "by_source": {
     "techpana": {
-      "total": 553,
+      "total": 282,
+      "snapshots": 553,
       "verdict_distribution": {
-        "मिथ्या": 173,
-        "भ्रामक": 331,
-        "अपुष्ट": 10,
-        "सही": 11,
-        "EMPTY": 28
+        "मिथ्या": 66,
+        "भ्रामक": 175,
+        "EMPTY": 27,
+        "सही": 9,
+        "अपुष्ट": 5
       },
       "oldest_article": "2024-07-17",
       "newest_article": "2026-11-25",
-      "empty_verdicts": 28
+      "empty_verdicts": 27
     },
     "nepalfactcheck": {
-      "total": 1378,
+      "total": 690,
+      "snapshots": 1378,
       "verdict_distribution": {
-        "मिथ्या सूचना": 511,
-        "भ्रामक सूचना": 732,
-        "सही सूचना": 95,
-        "अपुष्ट सूचना": 40
+        "मिथ्या सूचना": 274,
+        "भ्रामक सूचना": 364,
+        "सही सूचना": 30,
+        "अपुष्ट सूचना": 22
       },
       "oldest_article": "2020-03-13",
       "newest_article": "2026-11-26",

@@ -18,10 +18,10 @@ Four layers, each with one written rule, checked by `tests/test_data_contract.py
 
 | Layer | Rule | Where |
 |---|---|---|
-| Raw | A faithful copy of each fetch, never edited afterwards: one file per source per scrape day, with fetch metadata (`date_scraped`; TechPana also `badge_url` and `page_complete`). Older raw files are only ever added, never changed (tested). | `raw/<source>/<date>.json` |
+| Raw | A faithful copy of each fetch, never edited afterwards: one file per source per scrape day, with fetch metadata (`date_scraped`; TechPana also `badge_url` and `page_complete`). Older raw files are only ever added, never changed (tested). After a full re-scrape, the earlier files are moved byte for byte to `raw/archive/<source>/` (sha256 in `raw/archive/MANIFEST.csv`); the pipeline still reads them, and a row built from an archived copy says `snapshot_source = archive`. | `raw/<source>/<date>.json` (live), `raw/archive/<source>/<date>.json` |
 | Normalized | One row per article. Every row passes the written rules (schema validator), and weaker rows are flagged: `verified` (`gold` = hand-checked, `silver` = rules only), `label_source` (`stored` = badge only or no single NFC tag), `snapshot_conflict` / `snapshot_other_label` (snapshots disagreed; see "Redundancy"). | `data/nepfakev2.csv` |
 | Excluded | Every article left out, with one reason: `explainer`, `not_a_factcheck`, `verdict_unmappable` (no verdict found), `no_title_or_body`, `hand_checked_not_factcheck`, `validation_failed`. | `data/excluded.csv` |
-| Benchmark | `in_main_benchmark = True` if and only if `benchmark_exclusion_reason` is empty. Otherwise that column lists every reason (joined by a vertical bar): `label_<LABEL>` (not FALSE or MISLEADING), `label_source_stored` / `label_source_conclusion_mixed` (label not read from the article text), `language_en`, `page_cut` (TechPana page still cut short after the scraper's retries). | `data/nepfakev2.csv` |
+| Benchmark | `in_main_benchmark = True` if and only if `benchmark_exclusion_reason` is empty. Otherwise that column lists every reason (joined by a vertical bar): `label_<LABEL>` (not FALSE or MISLEADING), `label_source_stored` (label not read from the article text), `language_en`, `page_cut` (TechPana page still cut short after the scraper's retries). | `data/nepfakev2.csv` |
 
 **Count rule:** unique articles in raw (by source and canonical URL, over all snapshots) = normalized rows + excluded rows, with no article in both. Nothing disappears silently. When an article has several snapshots, the snapshots that were not used are listed in `logs/snapshot_report.json`, not in `excluded.csv`, because the article itself is kept.
 
@@ -33,11 +33,10 @@ Four layers, each with one written rule, checked by `tests/test_data_contract.py
   NepalFactCheck (666), from Mar 2020 to the latest weekly scrape.
 - **Labels.** The fact-checker's published verdict, not an annotator's
   opinion. Coarse `verdict_label` (REAL / FALSE_MISLEADING / UNVERIFIED) and
-  fine `label_fine` (FALSE 336, MISLEADING 538, MIXED 23, TRUE 17,
-  UNVERIFIED 26). `label_source` says where each verdict was read.
+  fine `label_fine` (28 Nov 2026: FALSE 353, MISLEADING 548, TRUE 17,
+  UNVERIFIED 27; no MIXED label since 28 Nov 2026). `label_source` says where each verdict was read.
 - **Main benchmark.** `in_main_benchmark`: 830 rows (319 FALSE, 511
-  MISLEADING). Left out: TRUE/UNVERIFIED (not the task), MIXED (both labels
-  given), `stored` (badge only, until hand-checked), English rows (6).
+  MISLEADING). Left out: TRUE/UNVERIFIED (not the task), `stored` (badge only, until hand-checked), English rows (6).
 - **Model inputs.** `claim_text` and `evidence_text`. `headline` and
   `conclusion_text` state the verdict and must not be inputs.
 - **Left out entirely.** `data/excluded.csv`: 22 NFC explainers, 4 TechPana
@@ -82,7 +81,7 @@ Coverage is on the 830 benchmark rows.
 |---|---|---|---|---|
 | `claim_text` | NFC summary box `दावी :`, else a `के … हो?` headline, else the lead / TechPana: the post's caption quoted in the `दाबी` section, else the lead. Hand-checked rows override | 100% | Not-a-claim in a 30-row sample (seed 99): 0/12 box, 0/3 question, 2/10 caption, 4/5 fallback | Captions sometimes quote a reply or a page name; fallbacks are mostly "a video went viral"; 257 rows (caption and fallback) go to the hand pass |
 | `evidence_text` | Body after the header, before the footer, without the conclusion (TechPana `निष्कर्ष`, NFC summary box) and without any sentence with a verdict word | 100% | 0 rows with a word starting मिथ्या / भ्रामक / अपुष्ट, or the words झुटो / असत्य (tested); word counter at the majority rate (tested) | Some boilerplate (comment prompts, "read also", old NFC footer with an email, inline media links); the outlet's own name appears in most rows |
-| `label_fine` | NFC header tag line / TechPana conclusion box naming one verdict, else the lead summary. MIXED and badge-only rows are out of the benchmark | 100% | 20/20 match the article (seed 404). NFC header vs its own summary box: 460/464 agree | **TechPana's headline and conclusion name different verdicts in 10 of 87 articles** where the headline names one (e.g. headline झुटो, conclusion भ्रामक; the conclusion is used). 4 NFC rows: header मिथ्या, box भ्रामक. The FALSE/MISLEADING line is not drawn consistently by the outlets themselves |
+| `label_fine` | NFC header tag line / TechPana conclusion box naming one verdict, else the lead summary. Both मिथ्या and भ्रामक named: the claim sentence decides, else MISLEADING (`conclusion_mixed`, 13 rows). Badge-only rows are out of the benchmark | 100% | 20/20 match the article (seed 404). NFC header vs its own summary box: 460/464 agree | **TechPana's headline and conclusion name different verdicts in 10 of 87 articles** where the headline names one (e.g. headline झुटो, conclusion भ्रामक; the conclusion is used). 4 NFC rows: header मिथ्या, box भ्रामक. The FALSE/MISLEADING line is not drawn consistently by the outlets themselves |
 | `verified` | `gold` if a person checked the label (`data_validation/reference_labels.csv`), else `silver` | 100% | — | 0 gold rows until the hand check is done |
 | `source_name` | The scraper that fetched the page | 100% | Domain matches on 940/940 | — |
 | `source_url` | The article URL, canonical (https, no query) | 100% | 0 duplicates | Not checked whether the pages are still online |

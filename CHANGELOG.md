@@ -4,6 +4,40 @@ Changes to the NepFakeV2 normalized dataset (`data/`) and its schema.
 The raw layer (`raw/`) is never edited; corrections are re-derived from the
 saved article text. Weekly data updates (new articles only) are not listed.
 
+## 2.0, before the release (2026-11-28, after the full re-scrape)
+
+- **No MIXED label.** A TechPana conclusion naming both मिथ्या and भ्रामक takes
+  the verdict of its sentence about the claim (`label_source`
+  `conclusion_claim`, new: 9 rows); if that names both too, MISLEADING
+  (`conclusion_mixed`, 13 rows). Both are in the main benchmark. Hand-check
+  `BOTH` = MISLEADING.
+- **गलत by context.** "दाबी गलत हो / रहेको / भएको" = FALSE; "गलत सन्दर्भ /
+  अर्थ / व्याख्या / तरिका" = MISLEADING; "गलत सूचना / प्रचार" is not a verdict.
+  Before, every गलत was MISLEADING. 4 rows changed MISLEADING → FALSE.
+- Effect on the 28 Nov data: 28 rows change `label_fine` or `label_source`;
+  main benchmark 839 → 868 (FALSE 324 → 338, MISLEADING 515 → 530).
+- **Raw archive.** After a full re-scrape the earlier raw files move byte for
+  byte to `raw/archive/<source>/` (`raw/archive/MANIFEST.csv`). New column
+  `snapshot_source` (`live` / `archive`): 29 rows use an archived copy.
+- Raw stats count unique articles (972), not stored records (1931); the
+  README shows new vs fetched articles per run.
+- A full re-scrape now also fetches directly every article already in raw
+  that the listing pages no longer show, and a listing card repeated on every
+  page is fetched once per run, not once per page.
+- TechPana verdict: "X सत्य/सही भए (ता)पनि …" (although X is true) is a
+  concession, not a verdict; a conclusion naming several verdicts is decided
+  by its claim sentence when that names one; the conclusion heading may be
+  "निष्कर्ष:" or "निश्कर्ष". 6 rows that had no verdict now have one.
+- `evidence_text`: links removed (NFC upload links carried date and media
+  type and were twice as common in MISLEADING as in FALSE rows) and the
+  outlet's own name replaced by `[OUTLET]`.
+- The workflow's full re-scrape (env `NEPFAKE_FULL_RESCRAPE=1`, no `--full`)
+  now also archives.
+- Weekly runs no longer skip the cutoff day: an article published on the
+  same day as the previous run's newest article, after that run, was skipped
+  for good. Now the run stops only at older dates, and articles already in
+  raw are not fetched again.
+
 ## 2.0 (2026-11-23)
 
 Major version: new IDs, a new label definition and new model-input text.

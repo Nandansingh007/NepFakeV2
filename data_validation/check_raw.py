@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from collections import Counter
 
 sys.path.insert(0, '.')
+from utils.helpers import snapshot_files  # noqa: E402
 
 RAW_DIRS = {
     "techpana":       Path("raw/techpana"),
@@ -31,7 +32,7 @@ SEP = "=" * 60
 
 def load_source(raw_dir: Path) -> list[dict]:
     articles = []
-    for json_file in sorted(raw_dir.glob("*.json")):
+    for json_file, _ in snapshot_files(raw_dir):   # live + raw/archive/
         if json_file.name == ".gitkeep":
             continue
         try:
@@ -171,8 +172,7 @@ def print_source_report(source_name: str, articles: list[dict]):
 
     # Files on disk
     raw_dir = RAW_DIRS[source_name]
-    json_files = [f for f in sorted(raw_dir.glob("*.json"))
-                  if f.name != ".gitkeep"]
+    json_files = [f for f, _ in snapshot_files(raw_dir)]
     print(f"  JSON files     : {len(json_files)} "
           f"({', '.join(f.name for f in json_files[-3:])}...)"
           if len(json_files) > 3

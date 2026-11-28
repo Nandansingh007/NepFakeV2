@@ -8,6 +8,7 @@
 # =============================================================================
 
 import hashlib
+from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 
@@ -52,6 +53,23 @@ def canonical_url(url: str) -> str:
         return urlunparse(("https", host, path, "", "", ""))
     except Exception:
         return url
+
+
+def archive_dir_for(raw_dir) -> Path:
+    """raw/<source>/ -> raw/archive/<source>/ (older snapshots, moved there
+    unchanged after a full re-scrape; see pipeline/archive.py)."""
+    raw_dir = Path(raw_dir)
+    return raw_dir.parent / "archive" / raw_dir.name
+
+
+def snapshot_files(raw_dir) -> list:
+    """Every raw JSON file of one source, archive and live, oldest first
+    (file name = scrape date; on the same date the archived file comes
+    first). [(path, "archive" | "live"), ...]"""
+    raw_dir = Path(raw_dir)
+    files = [(f, "archive") for f in sorted(archive_dir_for(raw_dir).glob("*.json"))]
+    files += [(f, "live") for f in sorted(raw_dir.glob("*.json"))] if raw_dir.exists() else []
+    return sorted(files, key=lambda x: (x[0].stem, x[1] != "archive"))
 
 
 def url_hash(url: str) -> str:

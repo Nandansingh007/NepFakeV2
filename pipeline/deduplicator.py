@@ -55,7 +55,7 @@ LAST_REPORT: dict = {"before": 0, "after": 0, "replaced": 0, "label_changed": []
 # Higher = read from a better place in the article (config LABEL_SOURCES).
 # A hand-checked label is the same in every snapshot, so it never degrades.
 LABEL_SOURCE_RANK = {"hand_checked": 3, "nfc_header": 2, "conclusion": 2,
-                     "conclusion_mixed": 2, "summary": 1, "stored": 0}
+                     "conclusion_claim": 2, "conclusion_mixed": 2, "summary": 1, "stored": 0}
 
 # claim_source values that are the fact-checker's own statement of the claim
 GOOD_CLAIM_SOURCES = {"hand_checked", "claim_box", "headline_question", "claim_caption"}

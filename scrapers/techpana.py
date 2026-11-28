@@ -161,8 +161,8 @@ VERDICT_KEYWORDS = {
     # Informal Nepali
     "झुटो":   "मिथ्या",   # informal "false"
     "साँचो":  "सही",      # informal "true"
-    "गलत":    "भ्रामक",   # "wrong": used for partly-true claims (e.g. a real
-                          # death at the wrong place), so MISLEADING, not FALSE
+    # "गलत" ("wrong") is NOT a plain keyword: its meaning depends on the
+    # next word (GALAT_FALSE / GALAT_MISLEADING below, 28 Nov 2026).
     "सत्य":   "सही",      # formal "true"
     "असत्य":  "मिथ्या",   # formal "untrue"
     "भ्रम":   "भ्रामक",   # "confusion/misleading"
@@ -286,9 +286,31 @@ def extract_verdict_from_image(img_url: str) -> Optional[str]:
 NEGATED_TRUE = re.compile(
     r"(?:सही|सत्य|साँचो)\s*(?:हो\s*)?(?:होइन|हैन|छैन|होइनन्|नभएको|नरहेको|हुँदैन|ठहरिँदैन)")
 
+# The conclusion box heading: "निष्कर्ष" on its own line, also spelled
+# "निश्कर्ष" or followed by a colon ("निष्कर्ष:", 28 Nov 2026).
+CONCLUSION_HEADING = re.compile(r"\n\s*नि[ष्श]्कर्ष\s*[:ः]?\s*\n")
+
+# "X सत्य भए पनि / सही भए तापनि …" = "although X is true, …": a concession
+# about a side fact, not the verdict (28 Nov 2026: 6 TechPana conclusions,
+# e.g. 158844 "घटना सत्य भए तापनि … भिडिओ … भ्रामक हो", lost their verdict).
+CONCESSIVE_TRUE = re.compile(
+    r"(?<![\u0900-\u097F])(?:सही|सत्य|साँचो)\s*(?:हो\s*)?"
+    r"(?:भए\s*(?:ता)?\s*पनि|भएता\s*पनि|भएतापनि|भएपनि)")
+
 # Summary sentences that report the desk's finding, e.g.
 # "तर, टेकपाना फ्याक्टचेक डेस्कको अनुसन्धानबाट उक्त दाबी मिथ्या रहेको पुष्टि भएको छ ।"
 FINDING_CUE = re.compile(r"फ्याक्ट\s*चेक|तथ्य\s*जाँच|अनुसन्धान|पुष्टि")
+
+
+# "गलत" by context (TechPana conclusions, 28 Nov 2026 full re-scrape):
+#   "दाबी गलत हो / रहेको / भएको / ठहरिएको" the claim is wrong      -> मिथ्या
+#   "गलत सन्दर्भ / अर्थ / व्याख्या / तरिका" wrong context or meaning  -> भ्रामक
+#   "गलत सूचना / प्रचार", "गलत र …"     misinformation in general -> not a verdict
+GALAT_FALSE = re.compile(
+    r"(?<![\u0900-\u097F])गलत\s*(?:हो|हुन्|रहेको|भएको|ठहरिएको|ठहर्‍याइएको|पाइएको|देखिएको|साबित)"
+    r"(?![\u0900-\u097F])")
+GALAT_MISLEADING = re.compile(
+    r"(?<![\u0900-\u097F])गलत\s*(?:सन्दर्भ|अर्थ|व्याख्या|तरिका|रूप|ढङ्ग|ढंग|दिशा)")
 
 
 def named_verdicts(text: str) -> set:
@@ -300,10 +322,27 @@ def named_verdicts(text: str) -> set:
     if not text:
         return set()
     text = NEGATED_TRUE.sub(" ", text)
-    return {
+    text = CONCESSIVE_TRUE.sub(" ", text)
+    found = {
         verdict for keyword, verdict in VERDICT_KEYWORDS.items()
         if re.search(rf"(?<![\u0900-\u097F]){re.escape(keyword)}(?![\u0900-\u097F])", text)
     }
+    if GALAT_FALSE.search(text):
+        found.add("मिथ्या")
+    if GALAT_MISLEADING.search(text):
+        found.add("भ्रामक")
+    return found
+
+
+def claim_sentence_verdicts(body_text: str) -> set:
+    """Verdicts named in the conclusion's sentences about the claim (those
+    containing दाबी/दावी). Empty set if there is no such sentence."""
+    headings = list(CONCLUSION_HEADING.finditer(body_text or ""))
+    if not headings:
+        return set()
+    conclusion = strip_sidebar(body_text[headings[-1].end():])
+    sentences = [s for s in re.split(r"[।\n]", conclusion) if re.search(r"दा[बव]ी", s)]
+    return set().union(*(named_verdicts(s) for s in sentences)) if sentences else set()
 
 
 def conclusion_verdicts(body_text: str) -> Optional[set]:
@@ -317,7 +356,7 @@ def conclusion_verdicts(body_text: str) -> Optional[set]:
     """
     if not body_text:
         return None
-    headings = list(re.finditer(r"\n\s*निष्कर्ष\s*\n", body_text))
+    headings = list(CONCLUSION_HEADING.finditer(body_text))
     if not headings:
         return None
     return named_verdicts(strip_sidebar(body_text[headings[-1].end():]))
@@ -326,7 +365,7 @@ def conclusion_verdicts(body_text: str) -> Optional[set]:
 def conclusion_text_for_sheet(body_text: str) -> str:
     """Text after the last "निष्कर्ष" heading (sidebar cut), or "" if none.
     Shown to the person in the label hand-check sheet."""
-    headings = list(re.finditer(r"\n\s*निष्कर्ष\s*\n", body_text or ""))
+    headings = list(CONCLUSION_HEADING.finditer(body_text or ""))
     if not headings:
         return ""
     return " ".join(strip_sidebar(body_text[headings[-1].end():]).split())
@@ -370,12 +409,15 @@ def resolve_verdict(body_text: str, fallback: str = "") -> tuple[str, str]:
     Order (first match wins):
       1. the conclusion box names exactly one verdict
              -> (that verdict, "conclusion")
-      2. the conclusion names both मिथ्या and भ्रामक
-             -> (fallback, "conclusion_mixed")
-         The fact-checker gave both labels. The summary is NOT used to pick
-         one, so the row stays marked as mixed. The verdict returned only
-         feeds the coarse label (both map to FALSE_MISLEADING); if the
-         fallback is not one of the two, भ्रामक is used.
+      2. the conclusion names several verdicts: look only at its sentences
+         about the claim (दाबी)
+           a. they name exactly one of them -> (that one, "conclusion_claim")
+              (e.g. "… दाबी मिथ्या हो", with भ्रामक only in "भ्रामक पोस्ट")
+           b. otherwise, if the verdicts are मिथ्या and भ्रामक
+                                            -> ("भ्रामक", "conclusion_mixed")
+              (any other combination goes on to step 3)
+              Rule decided 28 Nov 2026: a verdict naming both is MISLEADING.
+              There is no MIXED label any more.
       3. the lead summary names exactly one verdict
              -> (that verdict, "summary")
       4. otherwise
@@ -396,8 +438,12 @@ def resolve_verdict(body_text: str, fallback: str = "") -> tuple[str, str]:
     found = conclusion_verdicts(body_text)
     if found and len(found) == 1:
         return next(iter(found)), "conclusion"
-    if found == {"मिथ्या", "भ्रामक"}:
-        return (fallback if fallback in ("मिथ्या", "भ्रामक") else "भ्रामक"), "conclusion_mixed"
+    if found and len(found) > 1:
+        claim = claim_sentence_verdicts(body_text) & found
+        if len(claim) == 1:
+            return next(iter(claim)), "conclusion_claim"
+        if found == {"मिथ्या", "भ्रामक"}:
+            return "भ्रामक", "conclusion_mixed"
 
     summary = extract_verdict_from_summary(body_text)
     if summary:

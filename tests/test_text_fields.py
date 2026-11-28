@@ -259,3 +259,23 @@ def test_no_verdict_tag_word_in_benchmark_evidence(normalized):
     bad = [(e.example_id, stems.search(e.evidence_text).group(0))
            for e in normalized if e.in_main_benchmark and stems.search(e.evidence_text)]
     assert not bad, bad[:10]
+
+
+def test_evidence_has_no_links_or_outlet_name():
+    # 28 Nov 2026: NFC upload links were a label shortcut (26% of MISLEADING
+    # vs 13% of FALSE rows); the outlet naming itself gives away the source.
+    from pipeline.evidence_cleaner import mask_shortcuts
+    t = mask_shortcuts("टेकपाना फ्याक्टचेक डेस्कले जाँच गर्‍यो । हेर्नुहोस् "
+                       "https://nepalfactcheck.org/wp-content/uploads/2026/11/x.mp4 भिडिओ । "
+                       "नेपाल फ्याक्टचेकले पनि । निष्कर्ष:")
+    assert "http" not in t and "टेकपाना" not in t and "नेपाल फ्याक्टचेक" not in t
+    assert t.count("[OUTLET]") == 2 and not t.endswith("निष्कर्ष:")
+
+
+@pytest.mark.data
+def test_committed_evidence_has_no_links_or_outlet_name():
+    import pandas as pd
+    d = pd.read_csv("data/nepfakev2.csv", keep_default_na=False)
+    bad = d[d["evidence_text"].str.contains(r"https?://|टेकपाना|नेपाल\s*फ्याक्ट\s*चेक|नेपालफ्याक्टचेक",
+                                            regex=True)]
+    assert bad.empty, bad["source_url"].head().tolist()

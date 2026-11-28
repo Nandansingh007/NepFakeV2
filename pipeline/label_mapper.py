@@ -180,8 +180,8 @@ def map_verdict_fine(raw_verdict_text: str) -> str:
        B2: before 2.0 the first partial match won, so "सही होइन, भ्रामक"
        came out TRUE).
 
-    "MIXED" is never returned here: the normalizer sets it when the TechPana
-    conclusion names both मिथ्या and भ्रामक.
+    There is no MIXED label (removed 28 Nov 2026): a TechPana conclusion
+    naming both is resolved in scrapers/techpana.py resolve_verdict.
     """
     if not raw_verdict_text or not raw_verdict_text.strip():
         return ""

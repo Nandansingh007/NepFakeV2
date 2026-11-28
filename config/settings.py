@@ -29,6 +29,14 @@ RAW_DIRS = {
     "nepalfactcheck": RAW_DIR / "nepalfactcheck",
 }
 
+# Older snapshots: after a full re-scrape the earlier raw files of a source
+# are moved here unchanged (pipeline/archive.py), so raw/<source>/ holds the
+# latest full scrape plus the weekly runs after it. The pipeline still reads
+# the archive: an archived copy is used only when no live copy of that
+# article is usable (snapshot_source = "archive").
+ARCHIVE_DIR = RAW_DIR / "archive"
+ARCHIVE_MANIFEST = ARCHIVE_DIR / "MANIFEST.csv"
+
 # State file — tracks last run date per source
 LAST_RUN_FILE = RAW_DIR / "last_run.json"
 
@@ -96,22 +104,26 @@ LABELS_FINE = {
     "MISLEADING": "भ्रामक: real content, wrong context or a distorted claim",
     "TRUE":       "सही: the claim is accurate",
     "UNVERIFIED": "अपुष्ट: could not be confirmed or refuted",
-    "MIXED":      "TechPana conclusion names both मिथ्या and भ्रामक",
 }
+# There is no MIXED label (removed 28 Nov 2026). A TechPana conclusion that
+# names both मिथ्या and भ्रामक takes the verdict of its claim sentence
+# (label_source conclusion_claim); if that also names both, MISLEADING
+# (label_source conclusion_mixed). See scrapers/techpana.py resolve_verdict.
 
 # Every fine label has exactly one coarse label
 LABEL_FINE_TO_COARSE = {
-    "FALSE": 1, "MISLEADING": 1, "MIXED": 1,
+    "FALSE": 1, "MISLEADING": 1,
     "TRUE": 0,
     "UNVERIFIED": 2,
 }
 
 # Main benchmark task: FALSE vs MISLEADING. Rows whose verdict was not read
 # from the article text are left out (in_main_benchmark = False):
-#   conclusion_mixed  the fact-checker gave both labels
 #   stored            only the scraper's badge (decision 22 Nov 2026:
 #                     excluded until hand-checked)
-BENCHMARK_EXCLUDED_SOURCES = {"conclusion_mixed", "stored"}
+# conclusion_mixed rows (MISLEADING by rule, 28 Nov 2026) are in the
+# benchmark; filter on label_source to drop them.
+BENCHMARK_EXCLUDED_SOURCES = {"stored"}
 
 # NepalFactCheck's summary box ("दावी : … / दावीकर्ता : … / तथ्य : …") is the
 # fact-checker's own one-line answer. False (default since 28 Nov 2026): it
@@ -126,7 +138,10 @@ NFC_BOX_IN_EVIDENCE = False
 LABEL_SOURCES = {
     "nfc_header":       "NepalFactCheck header tag (line 3 of the body)",
     "conclusion":       "TechPana conclusion box names exactly one verdict",
-    "conclusion_mixed": "TechPana conclusion names both मिथ्या and भ्रामक",
+    "conclusion_claim": "TechPana conclusion names both मिथ्या and भ्रामक; the "
+                        "sentence about the claim (दाबी) names one, and that one is used",
+    "conclusion_mixed": "TechPana conclusion and its claim sentence name both "
+                        "मिथ्या and भ्रामक (or there is no claim sentence): MISLEADING",
     "summary":          "TechPana lead summary (no usable conclusion)",
     "stored":           "value the scraper stored: TechPana og:image badge "
                         "(files before 12 Oct 2026 may hold a sidebar badge), "

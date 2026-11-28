@@ -63,18 +63,45 @@ def save_last_run(state: dict) -> None:
 # RAW STATS
 # =============================================================================
 
+def raw_articles_by_url(raw_dir) -> tuple[dict, int]:
+    """All raw records of one source, one per article: the newest snapshot
+    of each canonical URL (later date_scraped wins, then the later file).
+    raw/archive/<source>/ is included. Returns (url -> record, number of
+    records read). Raw keeps every
+    snapshot (data contract), so after a full re-scrape most articles have
+    two records; counting records would count articles twice."""
+    from utils.helpers import canonical_url, snapshot_files
+    by_url, n = {}, 0
+    for json_file, _ in snapshot_files(raw_dir):
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                records = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            continue
+        for r in records:
+            n += 1
+            key = canonical_url(r.get("source_url", ""))
+            prev = by_url.get(key)
+            if prev is None or r.get("date_scraped", "") >= prev.get("date_scraped", ""):
+                by_url[key] = r
+    return by_url, n
+
+
 def compute_raw_stats() -> dict:
     """
-    Compute statistics from all raw JSON files.
-    Called after every scrape run to update stats_raw.json.
-    Handles both raw BS date strings and ISO date strings.
-    BS dates (TechPana) are converted to ISO via normalize_date()
-    so oldest/newest article dates are consistent across sources.
+    Statistics over the raw layer, written to raw/stats_raw.json after every run.
+
+    total_raw_articles / by_source.total count unique articles (canonical
+    URL). total_raw_snapshots / by_source.snapshots count stored records:
+    a re-scraped article has one record per fetch. The verdict profile uses
+    each article's newest snapshot. BS dates (TechPana) are converted to ISO
+    via normalize_date() so oldest/newest dates are comparable across sources.
     """
     from pipeline.normalizer import normalize_date
 
     stats = {
         "total_raw_articles": 0,
+        "total_raw_snapshots": 0,
         "by_source": {},
     }
 
@@ -83,28 +110,18 @@ def compute_raw_stats() -> dict:
         if not raw_dir.exists():
             continue
 
-        all_articles = []
-        for json_file in sorted(raw_dir.glob("*.json")):
-            try:
-                with open(json_file, "r", encoding="utf-8") as f:
-                    articles = json.load(f)
-                    all_articles.extend(articles)
-            except (json.JSONDecodeError, IOError):
-                continue
-
-        if not all_articles:
+        by_url, n_records = raw_articles_by_url(raw_dir)
+        articles = list(by_url.values())
+        if not articles:
             continue
 
-        # Verdict distribution
         verdicts = {}
-        for r in all_articles:
+        for r in articles:
             v = r.get("raw_verdict_text", "").strip() or "EMPTY"
             verdicts[v] = verdicts.get(v, 0) + 1
 
-        # Date range — BS and ISO dates both converted to ISO
-        # normalize_date() handles both formats
         dates = []
-        for r in all_articles:
+        for r in articles:
             raw_date = r.get("date_published", "")
             if not raw_date:
                 continue
@@ -114,14 +131,16 @@ def compute_raw_stats() -> dict:
         dates = sorted(dates)
 
         stats["by_source"][source_name] = {
-            "total": len(all_articles),
+            "total": len(articles),
+            "snapshots": n_records,
             "verdict_distribution": verdicts,
             "oldest_article": dates[0] if dates else "",
             "newest_article": dates[-1] if dates else "",
             "empty_verdicts": verdicts.get("EMPTY", 0),
         }
 
-        stats["total_raw_articles"] += len(all_articles)
+        stats["total_raw_articles"] += len(articles)
+        stats["total_raw_snapshots"] += n_records
 
     return stats
 
@@ -159,6 +178,8 @@ def run_collector(full: bool = False) -> None:
     Main entry point for Stage 1 pipeline.
     Runs all active scrapers (incrementally unless full=True) and updates state.
     """
+    # The workflow sets NEPFAKE_FULL_RESCRAPE=1 instead of passing --full
+    full = full or os.environ.get("NEPFAKE_FULL_RESCRAPE") == "1"
     if full:
         os.environ["NEPFAKE_FULL_RESCRAPE"] = "1"
     run_id = datetime.now().strftime("run_%Y%m%d_%H%M%S")
@@ -180,6 +201,9 @@ def run_collector(full: bool = False) -> None:
 
         try:
             scraper = _get_scraper(source_name)
+            from utils.helpers import canonical_url
+            known_urls = set(raw_articles_by_url(RAW_DIRS[source_name])[0]) \
+                if source_name in RAW_DIRS else set()
             if scraper is None:
                 logger.error(f"No scraper found for: {source_name}")
                 run_results[source_name] = {
@@ -206,16 +230,30 @@ def run_collector(full: bool = False) -> None:
 
             new_published = next_last_published(prev_published, max_published)
 
+            # articles_scraped = pages fetched this run; new_articles = URLs
+            # never seen in raw before (a full re-scrape fetches everything
+            # again, so the two differ a lot).
+            fetched_urls = {canonical_url(a.source_url) for a in articles}
+            new_count = len(fetched_urls - known_urls)
+            # Full re-scrape: the older raw files of this source move to
+            # raw/archive/<source>/ unchanged (pipeline/archive.py).
+            archived = []
+            if full and articles:
+                from pipeline.archive import archive_older
+                archived = archive_older(source_name, datetime.now().strftime("%Y-%m-%d"))
             run_results[source_name] = {
                 "status": "success",
                 "articles_scraped": len(articles),
+                "new_articles": new_count,
+                **({"unlisted_refetched": getattr(scraper, "unlisted_refetched", 0),
+                    "files_archived": len(archived)} if full else {}),
                 "last_run_date": datetime.now().strftime("%Y-%m-%d"),
                 "last_published_date": new_published,
             }
 
             logger.info(
                 f"{source_name} complete — "
-                f"{len(articles)} new articles | "
+                f"{len(articles)} fetched, {new_count} new articles | "
                 f"last_published_date: {new_published}"
             )
 
@@ -246,7 +284,8 @@ def run_collector(full: bool = False) -> None:
     stats = compute_raw_stats()
     save_raw_stats(stats, run_id)
     logger.info(f"Updated stats_raw.json")
-    logger.info(f"Total raw articles: {stats['total_raw_articles']}")
+    logger.info(f"Raw: {stats['total_raw_articles']} unique articles, "
+                f"{stats['total_raw_snapshots']} stored snapshots")
 
     # -------------------------------------------------------------------------
     # STAGE 2 — Normalize and export

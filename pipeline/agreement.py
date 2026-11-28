@@ -39,7 +39,7 @@ def _read(path) -> dict:
         url = (r.get("source_url") or r.get("url") or "").strip()
         lab = (r.get("label") or r.get("YOUR_LABEL") or r.get("label_fine") or "").strip().upper()
         if url and lab:
-            out[canonical_url(url)] = {"BOTH": "MIXED"}.get(lab, lab)
+            out[canonical_url(url)] = {"BOTH": "MISLEADING"}.get(lab, lab)
     return out
 
 

@@ -54,7 +54,12 @@ FINDING_MISLEADING = "तर, टेकपाना फ्याक्टचे�
         ("दाबी पूर्णतः भ्रामक र मिथ्या हो", {"मिथ्या", "भ्रामक"}),
         ("दाबी सही होइन", set()),          # negated "true" is not a verdict
         ("भ्रमण गर्न गएका", set()),        # whole words only: भ्रमण ≠ भ्रम
-        ("दाबी गलत हो", {"भ्रामक"}),        # गलत = MISLEADING (decided Nov 2026)
+        ("दाबी गलत हो", {"मिथ्या"}),        # the claim is wrong = FALSE (28 Nov 2026)
+        ("दाबी गलत भएको देखिएको छ", {"मिथ्या"}),
+        ("भिडिओ गलत सन्दर्भमा फैलाइएको", {"भ्रामक"}),   # wrong context = MISLEADING
+        ("गलत अर्थ लगाइएको", {"भ्रामक"}),
+        ("गलत सूचना फैलाउने कार्य", set()),   # "misinformation" in general: no verdict
+        ("गलत र अतिरञ्जित प्रचार", set()),
         ("", set()),
     ],
 )
@@ -75,13 +80,25 @@ def test_conclusion_beats_badge():
 
 
 def test_mixed_conclusion_is_marked_and_summary_not_used():
-    # The fact-checker gave both labels: keep it marked as mixed. The summary
-    # (which says मिथ्या here) must NOT be used to pick one.
+    # Both labels, also in the claim sentence: MISLEADING (28 Nov 2026),
+    # marked conclusion_mixed. The summary (मिथ्या here) is NOT used.
     from scrapers.techpana import resolve_verdict
     b = body(summary=FINDING_FALSE, conclusion="दाबी पूर्णतः भ्रामक र मिथ्या हो ।")
     verdict, source = resolve_verdict(b, "भ्रामक")
     assert source == "conclusion_mixed"
-    assert verdict == "भ्रामक"          # the stored value, only used for the coarse label
+    assert verdict == "भ्रामक"
+    # not the badge either
+    assert resolve_verdict(b, "मिथ्या") == ("भ्रामक", "conclusion_mixed")
+
+
+def test_claim_sentence_decides_a_mixed_conclusion():
+    # Real pattern (harka-sampang 155384): the claim sentence says मिथ्या,
+    # भ्रामक appears only in a general remark
+    from scrapers.techpana import resolve_verdict
+    b = body(conclusion="हर्क साम्पाङले पोस्ट गरेको दाबी मिथ्या हो । यस्ता भ्रामक पोस्टबाट सचेत रहनुहोस् ।")
+    assert resolve_verdict(b, "भ्रामक") == ("मिथ्या", "conclusion_claim")
+    b = body(conclusion="भाइरल भिडिओ पूर्ण रूपमा मिथ्या र भ्रामक छ ।")   # no दाबी sentence
+    assert resolve_verdict(b, "मिथ्या") == ("भ्रामक", "conclusion_mixed")
 
 
 def test_mixed_conclusion_without_usable_fallback_still_maps():
@@ -135,7 +152,7 @@ def test_extract_verdict_from_body_unchanged_contract():
 def test_every_label_source_is_documented():
     from scrapers.techpana import resolve_verdict  # noqa: F401
     assert set(LABEL_SOURCES) == {
-        "nfc_header", "conclusion", "conclusion_mixed", "summary", "stored",
+        "nfc_header", "conclusion", "conclusion_claim", "conclusion_mixed", "summary", "stored",
         "hand_checked"}   # 2.0: set only from data_validation/reference_labels.csv
 
 
@@ -197,7 +214,7 @@ def test_label_source_per_source(normalized):
     nfc = {e.label_source for e in normalized if e.source_name == "nepalfactcheck"}
     tp = {e.label_source for e in normalized if e.source_name == "techpana"}
     assert nfc <= {"nfc_header", "stored"}
-    assert tp <= {"conclusion", "conclusion_mixed", "summary", "stored"}
+    assert tp <= {"conclusion", "conclusion_claim", "conclusion_mixed", "summary", "stored"}
 
 
 @pytest.mark.data
@@ -228,14 +245,18 @@ def test_known_articles(by_url, url, label_source, label_text):
 
 # Raw files written by the fixed scraper: what it stored must be what the
 # normalizer would choose. (Vacuous until the first scrape after the fix.)
-FIRST_FIXED_SCRAPE = "2026-11-23"
+# Raw is never rewritten, so a file only has to agree with the rule that was
+# in force when it was scraped: the गलत-by-context and claim-sentence rules
+# (28 Nov 2026) apply to files scraped after 2026-11-28.
+FIRST_FIXED_SCRAPE = "2026-11-29"
 
 
 @pytest.mark.data
 def test_new_raw_files_agree_with_normalizer():
     from scrapers.techpana import resolve_verdict
     disagree = []
-    for path in sorted(Path("raw/techpana").glob("*.json")):
+    from utils.helpers import snapshot_files
+    for path, _ in snapshot_files("raw/techpana"):
         if path.stem < FIRST_FIXED_SCRAPE:
             continue
         for r in json.loads(path.read_text(encoding="utf-8")):
@@ -288,3 +309,22 @@ def test_stats_schema_version_not_hardcoded():
     stats = compute_stats([make_valid_example(label_source="conclusion")])
     assert stats["schema_version"] == SCHEMA_VERSION
     assert stats["label_source_distribution"]["conclusion"]["count"] == 1
+
+
+@pytest.mark.parametrize("text, expected", [
+    # "although the event is true, the video is misleading" (158844)
+    ("घटना सत्य भए तापनि भाइरल भिडिओ भने एआई सिर्जित भ्रामक हो", {"भ्रामक"}),
+    ("भिडिओ क्लिप सही भए पनि क्याप्सन भ्रामक छ", {"भ्रामक"}),
+    ("सो कुरा सत्य हो", {"सही"}),                       # a plain "true" still counts
+    ("दाबी असत्य भएको पुष्टि भएको छ", {"मिथ्या"}),      # असत्य is not "सत्य भए…"
+])
+def test_concession_is_not_a_verdict(text, expected):
+    from scrapers.techpana import named_verdicts
+    assert named_verdicts(text) == expected
+
+
+def test_claim_sentence_decides_true_plus_false():
+    # 155605: "… कुरा सत्य हो । तर, … भन्ने दाबी गलत हो ।"
+    from scrapers.techpana import resolve_verdict
+    b = body(conclusion="मतपेटिकामा सामान्य क्षति पुगेको कुरा सत्य हो । तर, ठुलो क्षति भएको भन्ने दाबी गलत हो ।")
+    assert resolve_verdict(b, "") == ("मिथ्या", "conclusion_claim")

@@ -38,7 +38,7 @@ VERDICT_DISPLAY = {
 }
 
 LABEL_ORDER = ["REAL", "FALSE_MISLEADING", "UNVERIFIED", "UNKNOWN"]
-FINE_ORDER  = ["FALSE", "MISLEADING", "MIXED", "TRUE", "UNVERIFIED"]
+FINE_ORDER  = ["FALSE", "MISLEADING", "TRUE", "UNVERIFIED"]
 
 SOURCE_DISPLAY = {
     "techpana":       "TechPana",
@@ -74,10 +74,13 @@ def format_last_run(raw_stats: dict) -> str:
     parts = []
     for source_key, display_name in SOURCE_DISPLAY.items():
         data  = sources.get(source_key, {})
-        count = data.get("articles_scraped", 0)
+        fetched = data.get("articles_scraped", 0)
+        # last_run.json files written before 28 Nov 2026 have no new_articles
+        new = data.get("new_articles", fetched)
         status = data.get("status", "unknown")
         flag = "✓" if status == "success" else "✗"
-        parts.append(f"{flag} {display_name}: +{count} new")
+        refetched = f" ({fetched} fetched)" if fetched != new else ""
+        parts.append(f"{flag} {display_name}: +{new} new{refetched}")
 
     if not parts:
         return ""
@@ -137,6 +140,7 @@ def build_stats_block(stats: dict, raw_stats: dict) -> str:
         updated_str = last_updated[:10] if last_updated else "unknown"
 
     total_raw               = raw_stats.get("total_raw_articles", 0)
+    total_snapshots         = raw_stats.get("total_raw_snapshots", total_raw)
     total_examples          = stats.get("total_examples", 0)
     total_including_unknown = stats.get("total_including_unknown", total_examples)
     unknown_count           = total_including_unknown - total_examples
@@ -204,7 +208,7 @@ def build_stats_block(stats: dict, raw_stats: dict) -> str:
 
 | | |
 |---|---|
-| 🗃 Raw articles scraped | **{total_raw}** |
+| 🗃 Raw articles scraped (unique URLs) | **{total_raw}** ({total_snapshots} stored snapshots) |
 | ✅ Normalized examples | **{total_examples}** |
 | 📅 Date range | {oldest} → {newest} |
 | 🕒 Last updated | {updated_str} |
@@ -219,8 +223,8 @@ def build_stats_block(stats: dict, raw_stats: dict) -> str:
 {label_rows}
 ### Fine Labels (normalized, `label_fine`)
 
-| Source | FALSE | MISLEADING | MIXED | TRUE | UNVERIFIED |
-|--------|------:|-----------:|------:|-----:|-----------:|
+| Source | FALSE | MISLEADING | TRUE | UNVERIFIED |
+|--------|------:|-----------:|-----:|-----------:|
 {fine_rows}
 {bench_line}
 

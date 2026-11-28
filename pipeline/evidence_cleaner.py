@@ -18,9 +18,9 @@ import re
 
 from config.settings import NFC_BOX_IN_EVIDENCE
 from pipeline.text_rules import leaks_verdict, split_sentences
-from scrapers.techpana import extract_own_date, strip_sidebar
+from scrapers.techpana import CONCLUSION_HEADING, extract_own_date, strip_sidebar
 
-TP_CONCLUSION = re.compile(r"\n\s*निष्कर्ष\s*\n")
+TP_CONCLUSION = CONCLUSION_HEADING   # scrapers/techpana.py (also "निष्कर्ष:" / "निश्कर्ष")
 TP_FOOTER = re.compile(r"\n\s*प्रतिक्रिया\s*\n")
 NFC_CONCLUSION = re.compile(r"\n\s*(?:तथ्य\s*जाँ+च\s*/\s*नि[ष्श]्कर्ष|नि[ष्श]्कर्ष)\s*:?\s*\n")
 # NFC's summary box at the end of the article: "तथ्य जाँच" heading (optional),
@@ -32,6 +32,28 @@ NFC_BOX_START = re.compile(r"(?:\n\s*(?:तथ्य\s*जाँ+च|तथ्�
 NFC_FOOTER = "प्रतिक्रिया दिनुहोस्"
 NFC_BS_DATE = re.compile(r"^(?:बैशाख|वैशाख|जेठ|जेष्ठ|असार|आषाढ|साउन|श्रावण|भदौ|भाद्र|असोज|अशोज|आश्विन|"
                          r"कात्तिक|कार्तिक|मंसिर|मङ्सिर|पुस|पौष|माघ|फागुन|फाल्गुन|चैत|चैत्र)\s+[०-९\d]+")
+
+
+# Links are in external_evidence_urls. In evidence_text they were a shortcut:
+# NFC's own upload links (".../wp-content/uploads/2026/11/x.mp4") carry the
+# date and the media type, and were in 26% of MISLEADING but 13% of FALSE
+# benchmark rows (28 Nov 2026).
+URL = re.compile(r"https?://\S+|www\.\S+")
+# The outlet naming itself ("टेकपाना फ्याक्टचेक डेस्कले …") tells a model the
+# source, which is a column of its own and correlates with the label.
+OUTLET = re.compile(r"टेकपाना|नेपाल\s*फ्याक्ट\s*चेक|नेपालफ्याक्टचेक|tech\s*pana|nepal\s*fact\s*check",
+                    re.I)
+OUTLET_TOKEN = "[OUTLET]"
+# A conclusion heading left at the very end (heading written inline)
+TRAILING_HEADING = re.compile(r"\s*नि[ष्श]्कर्ष\s*[:ः]\s*$")
+
+
+def mask_shortcuts(text: str) -> str:
+    """Remove links and replace the outlet's own name (evidence_text only)."""
+    text = URL.sub(" ", text)
+    text = OUTLET.sub(OUTLET_TOKEN, text)
+    text = TRAILING_HEADING.sub("", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
 
 
 def _drop_leaking_sentences(text: str) -> str:
@@ -115,4 +137,4 @@ def clean_evidence(source_name: str, title: str, body_text: str) -> tuple[str, s
         text, conclusion = _nfc(title or "", body)
     else:
         text, conclusion = body, ""
-    return _drop_leaking_sentences(text), conclusion
+    return mask_shortcuts(_drop_leaking_sentences(text)), conclusion

@@ -3,10 +3,12 @@ Test: the fine label (Phase 1, fix 2, schema 2.0).
 
 label_fine splits the coarse FALSE_MISLEADING label:
     FALSE       मिथ्या (and झुटो, असत्य)
-    MISLEADING  भ्रामक (and भ्रम, गलत)
+    MISLEADING  भ्रामक (and भ्रम, "गलत सन्दर्भ/अर्थ")
     TRUE        सही (and साँचो, सत्य)
     UNVERIFIED  अपुष्ट
-    MIXED       the TechPana conclusion names both मिथ्या and भ्रामक
+There is no MIXED label (28 Nov 2026): a TechPana conclusion naming both
+takes its claim sentence's verdict, else MISLEADING (label_source
+conclusion_claim / conclusion_mixed).
 The coarse label (verdict_label / verdict_label_text) is kept unchanged.
 
 in_main_benchmark marks rows for the main task (FALSE vs MISLEADING):
@@ -34,17 +36,18 @@ def test_schema_version_is_2_0():
 
 
 def test_fine_labels_defined():
-    assert set(LABELS_FINE) == {"FALSE", "MISLEADING", "TRUE", "UNVERIFIED", "MIXED"}
+    assert set(LABELS_FINE) == {"FALSE", "MISLEADING", "TRUE", "UNVERIFIED"}
 
 
 def test_fine_to_coarse():
     assert FINE_TO_COARSE == {
-        "FALSE": 1, "MISLEADING": 1, "MIXED": 1, "TRUE": 0, "UNVERIFIED": 2}
+        "FALSE": 1, "MISLEADING": 1, "TRUE": 0, "UNVERIFIED": 2}
 
 
-def test_benchmark_excludes_mixed_and_stored():
-    # Decision 22 Nov 2026: stored (badge-only) rows stay out until hand-checked
-    assert EXCLUDED == {"conclusion_mixed", "stored"}
+def test_benchmark_excludes_only_stored():
+    # Decision 22 Nov 2026: stored (badge-only) rows stay out until hand-checked.
+    # 28 Nov 2026: conclusion_mixed rows are MISLEADING and in the benchmark.
+    assert EXCLUDED == {"stored"}
 
 
 # -----------------------------------------------------------------------------
@@ -126,7 +129,7 @@ def test_validator_accepts_consistent_record():
     ({"label_fine": "WRONG"}, "label_fine invalid"),
     ({"label_fine": "TRUE"}, "label_fine"),                        # TRUE but coarse is 1
     ({"label_fine": "UNVERIFIED", "in_main_benchmark": True}, "in_main_benchmark"),
-    ({"label_fine": "MIXED", "label_source": "conclusion_mixed"}, "in_main_benchmark"),
+    ({"label_fine": "MIXED"}, "label_fine invalid"),               # label removed 28 Nov 2026
     ({"label_source": "stored"}, "in_main_benchmark"),
 ])
 def test_validator_rejects_inconsistent_record(overrides, needle):
@@ -148,11 +151,11 @@ def test_stats_have_fine_distribution():
     stats = compute_stats([
         _example(),
         _example(label_fine="MISLEADING"),
-        _example(label_fine="MIXED", label_source="conclusion_mixed", in_main_benchmark=False),
+        _example(label_fine="UNVERIFIED", verdict_label=2, in_main_benchmark=False),
     ])
     assert stats["schema_version"] == "2.0"
     assert stats["label_fine_distribution"]["FALSE"]["count"] == 1
-    assert stats["label_fine_by_source"]["techpana"]["MIXED"] == 1
+    assert stats["label_fine_by_source"]["techpana"]["UNVERIFIED"] == 1
     assert stats["main_benchmark"] == {"total": 2, "FALSE": 1, "MISLEADING": 1}
 
 
@@ -169,12 +172,12 @@ def test_every_record_has_a_consistent_fine_label(normalized):
 
 
 @pytest.mark.data
-def test_mixed_exactly_when_conclusion_mixed(normalized):
-    # (or a person marked it BOTH in the hand check)
-    bad = [e.source_url for e in normalized
-           if (e.label_fine == "MIXED") != (e.label_source == "conclusion_mixed")
-           and e.label_source != "hand_checked"]
+def test_conclusion_mixed_is_misleading(normalized):
+    # A verdict naming both मिथ्या and भ्रामक (claim sentence too) is MISLEADING
+    bad = [(e.source_url, e.label_fine) for e in normalized
+           if e.label_source == "conclusion_mixed" and e.label_fine != "MISLEADING"]
     assert not bad, bad[:10]
+    assert not [e for e in normalized if e.label_fine == "MIXED"]
 
 
 @pytest.mark.data
@@ -199,9 +202,15 @@ def test_nfc_has_no_mixed(normalized):
     # conclusion "दाबी मिथ्या हो" (badge said भ्रामक)
     ("https://techpana.com/2026/159798/rabi-lamichhane-fake-ai-video-claims-igp-dan-bahadur-karki-dismissed",
      "FALSE", True),
-    # "दाबी पूर्णतः भ्रामक र मिथ्या हो"
+    # "दाबी पूर्णतः भ्रामक र मिथ्या हो": both, also in the claim sentence -> MISLEADING
     ("https://techpana.com/2026/159019/swornim-wagle-statue-viral-image-ai-generated-fact-check",
-     "MIXED", False),
+     "MISLEADING", True),
+    # conclusion names both, but its claim sentence "… दाबी मिथ्या हो" -> FALSE
+    ("https://techpana.com/2026/155384/harka-sampang-fake-x-account-viral-post-truth",
+     "FALSE", True),
+    # "दाबी गलत हो" -> FALSE (was MISLEADING before 28 Nov 2026)
+    ("https://techpana.com/2026/155501/fact-check-okhaldhunga-ncp-joining-viral-photo-fake",
+     "FALSE", True),
     # summary "दाबी भ्रामक"
     ("https://techpana.com/2025/149828/techpana-factcheck-mustang-uranium-claim-false",
      "MISLEADING", True),

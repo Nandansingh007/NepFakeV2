@@ -65,7 +65,9 @@ def test_ids_unchanged_when_an_older_raw_file_is_added(tmp_path, monkeypatch, no
     from pipeline import normalizer
     raw = tmp_path / "raw"
     shutil.copytree("raw", raw)
-    src = json.loads(Path("raw/techpana/2026-11-02.json").read_text(encoding="utf-8"))[0]
+    from utils.helpers import snapshot_files
+    first_file = snapshot_files("raw/techpana")[0][0]
+    src = json.loads(Path(first_file).read_text(encoding="utf-8"))[0]
     extra = dict(src, source_url="https://techpana.com/2020/000001/extra-test-article")
     (raw / "techpana" / "2000-01-01.json").write_text(
         json.dumps([extra], ensure_ascii=False), encoding="utf-8")
