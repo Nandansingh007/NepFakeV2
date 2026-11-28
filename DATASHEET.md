@@ -12,6 +12,21 @@ the 2026-11-23 data (940 rows); `data/stats.json` has the current ones.
   alone; claimant; explanation generation from `conclusion_text`.
 - **Creator.** Nandan Singh. No funding.
 
+## Data contract
+
+Four layers, each with one written rule, checked by `tests/test_data_contract.py` on every weekly run:
+
+| Layer | Rule | Where |
+|---|---|---|
+| Raw | A faithful copy of each fetch, never edited afterwards: one file per source per scrape day, with fetch metadata (`date_scraped`; TechPana also `badge_url` and `page_complete`). Older raw files are only ever added, never changed (tested). | `raw/<source>/<date>.json` |
+| Normalized | One row per article. Every row passes the written rules (schema validator), and weaker rows are flagged: `verified` (`gold` = hand-checked, `silver` = rules only), `label_source` (`stored` = badge only or no single NFC tag), `snapshot_conflict` / `snapshot_other_label` (snapshots disagreed; see "Redundancy"). | `data/nepfakev2.csv` |
+| Excluded | Every article left out, with one reason: `explainer`, `not_a_factcheck`, `verdict_unmappable` (no verdict found), `no_title_or_body`, `hand_checked_not_factcheck`, `validation_failed`. | `data/excluded.csv` |
+| Benchmark | `in_main_benchmark = True` if and only if `benchmark_exclusion_reason` is empty. Otherwise that column lists every reason (joined by a vertical bar): `label_<LABEL>` (not FALSE or MISLEADING), `label_source_stored` / `label_source_conclusion_mixed` (label not read from the article text), `language_en`, `page_cut` (TechPana page still cut short after the scraper's retries). | `data/nepfakev2.csv` |
+
+**Count rule:** unique articles in raw (by source and canonical URL, over all snapshots) = normalized rows + excluded rows, with no article in both. Nothing disappears silently. When an article has several snapshots, the snapshots that were not used are listed in `logs/snapshot_report.json`, not in `excluded.csv`, because the article itself is kept.
+
+**Known limit of the raw layer:** pages the TechPana scraper recognises as *not a fact-check* while scraping (news on the same listing tab, 271 in the 28 Nov 2026 full re-scrape) are not saved to raw. They are only named in the run log (`logs/`, uploaded as an artifact). Raw is therefore "every fetched fact-check page", not "every fetched page".
+
 ## Composition
 
 - **Instances.** One row = one fact-check article by TechPana (274) or
@@ -36,7 +51,12 @@ the 2026-11-23 data (940 rows); `data/stats.json` has the current ones.
   - Both are provisional until frozen (`python -m pipeline.splitter freeze`,
     planned after the full re-scrape). After the freeze, `data/splits_v2.0.csv`
     and its sha256 in the manifest fix the splits; new rows get `new`.
-- **Redundancy.** URL duplicates are removed (newest snapshot wins).
+- **Redundancy.** URL duplicates are removed: one row per article. When an article has several snapshots, one fixed rule picks the copy, and the chosen copy is used whole (fields are never mixed between snapshots):
+  1. If the newer copy is not degraded, the newer copy is used. Degraded means a weaker label source, a claim from a fallback instead of the fact-checker's own text, or less than half the text.
+  2. If the newer copy is degraded and both copies have the same label, the older (complete) copy is used.
+  3. If the newer copy is degraded and the labels differ, the copy whose label comes from stronger evidence is used: hand check, then the NFC header or TechPana conclusion, then the TechPana summary, then the badge only. On equal strength, the newer copy is used.
+
+  A row whose label differs from another snapshot's has `snapshot_conflict = True` and the other label in `snapshot_other_label`. Such rows stay in the dataset as `silver`. They leave the benchmark only by the usual rule (a badge-only label is never in the benchmark). Every case is listed in `logs/snapshot_report.json`, and conflicts never stop the weekly run.
   The same claim checked by both outlets is kept twice and shares a
   `claim_group_id` (48 groups with 2 or more rows today).
 

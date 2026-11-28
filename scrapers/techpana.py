@@ -41,6 +41,7 @@
 #   - "गलत" maps to भ्रामक (misleading), not मिथ्या.
 # =============================================================================
 
+import copy
 import re
 from datetime import date
 from typing import Optional
@@ -219,6 +220,39 @@ def strip_shares_prefix(text: str) -> str:
     return text
 
 
+# Text the sidebar starts with; every complete article page has it after the
+# article text (265 of 275 pages in the 28 Nov 2026 full re-scrape).
+PAGE_END_MARKER = "पछिल्ला अपडेट"
+PAGE_RETRIES = 2
+
+
+def content_container(soup):
+    """The element that holds the article text (first match wins)."""
+    return (
+        soup.find("div", class_="article-content") or
+        soup.find("div", class_="content") or
+        soup.find("article") or
+        soup.find("main")
+    )
+
+
+def article_body(soup) -> str:
+    """Article text of a parsed page, as stored in body_text. Does not change
+    the soup (scripts are skipped, not removed), so it can be called twice."""
+    div = content_container(soup)
+    if not div:
+        return ""
+    div = copy.copy(div)               # same text as before, soup untouched
+    for tag in div.find_all(["script", "style", "nav"]):
+        tag.decompose()
+    return strip_shares_prefix(div.get_text(separator="\n", strip=True))
+
+
+def page_reaches_end(body_text: str) -> bool:
+    """True if the text runs to the sidebar, i.e. the page was not cut short."""
+    return PAGE_END_MARKER in body_text
+
+
 def is_factcheck_article(title: str, body_text: str, url: str = "") -> bool:
     """
     Check if article is a fact-check article.
@@ -287,6 +321,15 @@ def conclusion_verdicts(body_text: str) -> Optional[set]:
     if not headings:
         return None
     return named_verdicts(strip_sidebar(body_text[headings[-1].end():]))
+
+
+def conclusion_text_for_sheet(body_text: str) -> str:
+    """Text after the last "निष्कर्ष" heading (sidebar cut), or "" if none.
+    Shown to the person in the label hand-check sheet."""
+    headings = list(re.finditer(r"\n\s*निष्कर्ष\s*\n", body_text or ""))
+    if not headings:
+        return ""
+    return " ".join(strip_sidebar(body_text[headings[-1].end():]).split())
 
 
 def extract_verdict_from_body(body_text: str) -> Optional[str]:
@@ -450,7 +493,28 @@ class TechpanaScraper(BaseScraper):
             self.logger.warning(f"Failed to fetch: {url}")
             return None
 
+        # A page whose text stops before the "पछिल्ला अपडेट" sidebar was cut
+        # short (28 Nov 2026 full re-scrape: 10 of 275 pages ended right after
+        # a "हेर्नुहोस् … स्क्रिनशट" link block, at a different point in each
+        # scrape of the same article, so the HTML we got was incomplete, not
+        # the article). Fetch it again, keep the longest text, and record
+        # whether the end was reached (page_complete).
         soup = BeautifulSoup(html, "lxml")
+        page_complete = page_reaches_end(article_body(soup))
+        for attempt in range(PAGE_RETRIES):
+            if page_complete:
+                break
+            self.logger.warning(f"Page text cut short, fetching again ({attempt + 1}/"
+                                f"{PAGE_RETRIES}): {url}")
+            again = self.fetch_page(url)
+            if not again:
+                continue
+            again_soup = BeautifulSoup(again, "lxml")
+            if len(article_body(again_soup)) > len(article_body(soup)):
+                soup = again_soup
+            page_complete = page_reaches_end(article_body(soup))
+        if not page_complete:
+            self.logger.warning(f"Page text still cut short after {PAGE_RETRIES} retries: {url}")
 
         try:
             # --- Title ---
@@ -463,20 +527,9 @@ class TechpanaScraper(BaseScraper):
                 return None
 
             # --- Body text ---
-            body_text = ""
-            content_div = (
-                soup.find("div", class_="article-content") or
-                soup.find("div", class_="content") or
-                soup.find("article") or
-                soup.find("main")
-            )
-            if content_div:
-                for tag in content_div.find_all(["script", "style", "nav"]):
-                    tag.decompose()
-                body_text = content_div.get_text(separator="\n", strip=True)
-
-            # Strip leading "Shares" widget artifact — affects ~72% of articles
-            body_text = strip_shares_prefix(body_text)
+            content_div = content_container(soup)
+            # Strips the leading "Shares" widget artifact (~72% of articles)
+            body_text = article_body(soup)
 
             if not body_text:
                 self.logger.warning(f"No body text: {url}")
@@ -513,12 +566,11 @@ class TechpanaScraper(BaseScraper):
             # Until Nov 2026 the badge was read FIRST here, while the
             # normalizer read the conclusion first, so raw files stored
             # verdicts the dataset then overrode (54 TechPana rows).
-            badge = ""
+            badge, badge_url = "", ""
             og_image = soup.find("meta", property="og:image")
             if og_image:
-                badge = extract_verdict_from_image(
-                    og_image.get("content", "")
-                ) or ""
+                badge_url = og_image.get("content", "") or ""
+                badge = extract_verdict_from_image(badge_url) or ""
 
             # (Removed Oct 2026: search over ALL <img> tags, which returned
             #  badges of sidebar articles.)
@@ -552,6 +604,8 @@ class TechpanaScraper(BaseScraper):
                 author=author,
                 category="factcheck",
                 external_links=external_links[:20],
+                badge_url=badge_url,
+                page_complete=page_complete,
             )
 
             self.logger.debug(

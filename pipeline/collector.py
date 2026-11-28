@@ -268,6 +268,11 @@ def run_collector(full: bool = False) -> None:
         if changed:
             logger.warning(f"{changed} re-scraped articles changed label_fine "
                            f"(see the dedup report; the test gate allows 10%)")
+        b = dataset_stats.get("_build", {})
+        if b.get("kept_older") or b.get("newer_excluded"):
+            logger.warning(f"older snapshot kept for {b.get('kept_older', 0)} degraded and "
+                           f"{b.get('newer_excluded', 0)} excluded newer copies "
+                           f"(logs/snapshot_report.json)")
 
         from pipeline.hf_push import push_to_huggingface
         if push_to_huggingface():

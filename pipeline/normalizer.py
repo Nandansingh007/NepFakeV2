@@ -51,6 +51,12 @@ logger = logging.getLogger("nepfakev2.normalizer")
 #          hand_checked_not_factcheck, validation_failed
 LAST_EXCLUSIONS: list[dict] = []
 
+# Newer snapshots that were excluded (e.g. verdict not found) while an older
+# snapshot of the same URL is still in the dataset. The older copy stays, so
+# no data is lost, but a re-scrape that loses many verdicts is a scraper
+# problem worth seeing: listed here and in logs/snapshot_report.json.
+LAST_SHADOWED: list[dict] = []
+
 
 # =============================================================================
 # DATE NORMALIZATION
@@ -200,6 +206,30 @@ def _exclude(exclusions, raw, reason):
     return None
 
 
+def benchmark_reasons(label_fine: str, label_source: str, language: str,
+                      page_complete=None) -> str:
+    """Why a normalized row is NOT in the main benchmark ("" = it is).
+    Every reason that applies, joined with "|", in this order:
+        label_<LABEL>          label_fine is not FALSE or MISLEADING
+        label_source_<SOURCE>  label not read from the article text
+                               (BENCHMARK_EXCLUDED_SOURCES: stored = badge
+                               only / no single NFC tag; conclusion_mixed)
+        language_en            headline + evidence mostly not Devanagari
+        page_cut               TechPana page still cut short after the
+                               scraper's retries (raw page_complete False)
+    """
+    reasons = []
+    if label_fine not in ("FALSE", "MISLEADING"):
+        reasons.append(f"label_{label_fine or 'none'}")
+    if label_source in BENCHMARK_EXCLUDED_SOURCES:
+        reasons.append(f"label_source_{label_source}")
+    if language != "ne":
+        reasons.append(f"language_{language or 'unknown'}")
+    if page_complete is False:
+        reasons.append("page_cut")
+    return "|".join(reasons)
+
+
 def normalize_article(raw: dict, references: Optional[dict] = None,
                       exclusions: Optional[list] = None,
                       claims: Optional[dict] = None) -> Optional[NepFakeV2Example]:
@@ -280,11 +310,9 @@ def normalize_article(raw: dict, references: Optional[dict] = None,
     share = devanagari_share(title + " " + evidence_text[:2000])
     language = "ne" if share >= 0.5 else "en"
 
-    in_main_benchmark = (
-        label_fine in ("FALSE", "MISLEADING")
-        and label_source not in BENCHMARK_EXCLUDED_SOURCES
-        and language == "ne"
-    )
+    benchmark_exclusion_reason = benchmark_reasons(
+        label_fine, label_source, language, raw.get("page_complete"))
+    in_main_benchmark = not benchmark_exclusion_reason
 
     date_published, date_precision = normalize_date_with_precision(raw_date)
 
@@ -301,6 +329,7 @@ def normalize_article(raw: dict, references: Optional[dict] = None,
         label_source=label_source,
         verified="gold" if label_source == "hand_checked" else "silver",
         in_main_benchmark=in_main_benchmark,
+        benchmark_exclusion_reason=benchmark_exclusion_reason,
         evidence_text=evidence_text,
         conclusion_text=conclusion_text,
         external_evidence_urls=filter_external_links(raw.get("external_links", []), source_url),
@@ -369,15 +398,26 @@ def normalize_all(references: Optional[dict] = None,
     # An exclusion of an older snapshot does not count when a newer snapshot
     # of the same URL is kept (or excluded again): one entry per URL.
     kept_urls = {canonical_url(e.source_url) for e in validation["valid"]}
+    kept_scraped = {}
+    for e in validation["valid"]:
+        key = canonical_url(e.source_url)
+        kept_scraped[key] = max(kept_scraped.get(key, ""), e.date_scraped or "")
     latest = {}
+    shadowed = {}
     for x in exclusions:
         key = canonical_url(x["source_url"])
         if key in kept_urls:
+            if (x.get("date_scraped") or "") > kept_scraped[key]:
+                shadowed[key] = {**x, "kept_scraped": kept_scraped[key]}
             continue
         if key not in latest or x["date_scraped"] >= latest[key]["date_scraped"]:
             latest[key] = x
     LAST_EXCLUSIONS[:] = sorted(latest.values(),
                                 key=lambda x: (x["source_name"], x["source_url"]))
+    LAST_SHADOWED[:] = sorted(shadowed.values(),
+                              key=lambda x: (x["source_name"], x["source_url"]))
+    for x in LAST_SHADOWED[:20]:
+        logger.warning(f"Newer snapshot excluded ({x['reason']}), older kept: {x['source_url']}")
 
     logger.info(f"normalized {len(validation['valid'])}, excluded {len(LAST_EXCLUSIONS)}")
     return validation["valid"]

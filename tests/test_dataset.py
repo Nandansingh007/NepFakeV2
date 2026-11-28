@@ -18,8 +18,8 @@ pytestmark = pytest.mark.data
 REQUIRED_COLS = [
     "example_id", "claim_text", "claim_source", "claimant", "claim_platform",
     "headline", "verdict_label", "verdict_label_text", "label_fine",
-    "label_source", "verified",
-    "in_main_benchmark", "evidence_text", "conclusion_text",
+    "label_source", "verified", "snapshot_conflict", "snapshot_other_label",
+    "in_main_benchmark", "benchmark_exclusion_reason", "evidence_text", "conclusion_text",
     "external_evidence_urls", "source_name", "source_type", "source_url",
     "date_published", "date_precision", "date_scraped", "language",
     "is_native_nepali", "label_basis", "topic_category", "annotator_notes",

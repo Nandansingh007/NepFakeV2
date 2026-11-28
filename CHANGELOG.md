@@ -19,6 +19,35 @@ Numbers below are for the 2026-11-23 data: 940 rows, 26 left out.
   claim, NFC claim box, or the "दाबी" section), not the fact-checker's
   headline, which usually states the verdict. Fallback: the headline with the
   prefix and verdict words removed. `claim_source` says which.
+- Re-scrape guard, before the v2.0 release (28 Nov 2026): a newer snapshot
+  no longer replaces an older one when it is a degraded copy (weaker
+  `label_source`, claim from a fallback instead of the fact-checker's own
+  text, or less than half the text), and a newer snapshot that is excluded
+  (e.g. no verdict found) while an older one is kept is now reported. Both
+  are listed in `logs/snapshot_report.json`. No row changes on the
+  2026-11-23 data (no URL had two snapshots).
+- Data contract, before the v2.0 release (28 Nov 2026): raw / normalized /
+  excluded / benchmark, each with a written rule (DATASHEET "Data
+  contract"), tested in `tests/test_data_contract.py`. New column
+  `benchmark_exclusion_reason` (why a row is not in the benchmark). A
+  TechPana page still cut short after the retries stays in the dataset but
+  leaves the benchmark (`page_cut`). Count test: unique raw articles =
+  normalized + excluded. Benchmark membership unchanged on existing data.
+- Snapshot rule, before the v2.0 release (28 Nov 2026): when the newer
+  copy is degraded and the two copies disagree on the label, the copy whose
+  label comes from stronger evidence is used (equal strength: the newer
+  one), always the whole copy. New columns `snapshot_conflict` and
+  `snapshot_other_label` mark every row whose label differs from another
+  snapshot's. Conflicts never stop the run. See DATASHEET "Redundancy".
+- Full refresh, before the v2.0 release (28 Nov 2026). The first full
+  re-scrape showed that 10 of 275 TechPana pages came back cut short, at a
+  different point each time, and that 27 badge-only labels could no longer
+  be read. The TechPana scraper now fetches a cut page again (up to 2 times)
+  and stores `page_complete` and the og:image URL `badge_url` in raw. New
+  `python -m pipeline.reference_labels sheet` writes
+  `data_validation/labels_to_check.csv`: every Nepali row whose label no
+  rule read from the article text (badge only, no header tag or several,
+  no verdict found), for the hand check.
 - Claim fix, before the v2.0 release (28 Nov 2026): `claim_text` reads
   NepalFactCheck's summary box (`दावी :`, both spellings; it sat in
   `evidence_text`, so the old rule found it 8 times), NFC `के … हो?`

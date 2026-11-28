@@ -318,6 +318,9 @@ class BaseScraper(ABC):
             "author":           article.author,
             "category":         article.category,
             "external_links":   article.external_links,
+            **({"badge_url": article.badge_url} if article.badge_url else {}),
+            **({"page_complete": article.page_complete}
+               if article.page_complete is not None else {}),
             "annotator_notes":  article.annotator_notes,
         }
 

@@ -126,6 +126,16 @@ X, y = train["claim_text"] + " " + train["evidence_text"], train["label_fine"]
 | [TechPana](https://techpana.com/factcheck/) | IFCN-certified fact-checker | Nepali | Feb 2025 → present |
 | [NepalFactCheck](https://nepalfactcheck.org) | Non-profit fact-checker (CMR-Nepal) | Nepali | Mar 2020 → present |
 
+## Data contract
+
+- **Raw** (`raw/`): a faithful copy of each fetch, never edited afterwards.
+- **Normalized** (`data/nepfakev2.csv`): every row passes the written rules, and weaker rows are flagged (`verified`, `label_source`, `snapshot_conflict`).
+- **Excluded** (`data/excluded.csv`): every article left out, with a reason.
+- **Benchmark** (`in_main_benchmark`): a subset by a written rule, and every other row says why in `benchmark_exclusion_reason`.
+- **Count:** unique articles in raw = normalized + excluded, checked by a test on every run.
+
+Details and the exact reasons: the DATASHEET in the GitHub repository, "Data contract".
+
 ## Data Fields
 
 | Field | Type | Description |
@@ -141,7 +151,10 @@ X, y = train["claim_text"] + " " + train["evidence_text"], train["label_fine"]
 | `label_fine` | string | FALSE / MISLEADING / MIXED / TRUE / UNVERIFIED (see Labels) |
 | `label_source` | string | Where the verdict was read: `nfc_header`, `conclusion`, `conclusion_mixed`, `summary`, `stored` (scraper's badge only), `hand_checked` (a person read the article) |
 | `verified` | string | `gold`: a person checked the label (`label_source == "hand_checked"`). `silver`: read from the article by rules only. Score gold rows with `python -m pipeline.evaluate … --gold` |
+| `snapshot_conflict` | bool | `True` if another snapshot of the same article had a different `label_fine`. The copy used is chosen by a fixed rule (DATASHEET, "Redundancy") and used whole |
+| `snapshot_other_label` | string | `label_fine` of the other snapshot(s), several separated by a vertical bar; empty if none |
 | `in_main_benchmark` | bool | True if the row belongs to the main FALSE-vs-MISLEADING task |
+| `benchmark_exclusion_reason` | string | Why the row is not in the benchmark, empty if it is: `label_<LABEL>`, `label_source_stored`, `label_source_conclusion_mixed`, `language_en`, `page_cut` (several separated by a vertical bar) |
 | `evidence_text` | string | Article body without header, conclusion (TechPana `निष्कर्ष`, NepalFactCheck's `दावी / दावीकर्ता / तथ्य` summary box), footer, and without any sentence that states the verdict |
 | `conclusion_text` | string | The fact-checker's conclusion. **States the verdict: not a model input** |
 | `external_evidence_urls` | string | Links in the article, `" \| "`-separated, without share buttons and the outlet's own pages |

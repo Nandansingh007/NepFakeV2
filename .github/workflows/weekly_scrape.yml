@@ -13,6 +13,9 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    # GitHub stops a job after 6 h (360 min). Stop it ourselves a little
+    # earlier so the "if: failure()" upload steps below still run.
+    timeout-minutes: 350
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,7 +55,11 @@ jobs:
       # HF_TOKEN is deliberately NOT given to the collector any more.
       # Without it, collector.py skips its built-in Hugging Face push.
       # The push now happens in its own step below, only after the tests pass.
+      # A full re-scrape took 2 h 47 min on 28 Nov 2026 (mostly TechPana's
+      # 10 s crawl delay). 300 min leaves room for the tests and uploads.
+      # A timed-out step counts as failed, so the scrape is still uploaded.
       - name: Run collector (scrape + normalize, no Hugging Face push)
+        timeout-minutes: 300
         env:
           # "1" only when started by hand with full_rescrape ticked
           NEPFAKE_FULL_RESCRAPE: ${{ github.event.inputs.full_rescrape == 'true' && '1' || '0' }}

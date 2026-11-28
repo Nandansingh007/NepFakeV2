@@ -62,6 +62,15 @@ class RawArticle:
     category: str = ""
     external_links: list = field(default_factory=list)
 
+    badge_url: str = ""
+    # TechPana (since Nov 2026): the og:image URL the badge verdict is read
+    # from, so a badge that changes between scrapes can be shown. "" if none.
+
+    page_complete: Optional[bool] = None
+    # TechPana (since Nov 2026): True if the article text reached the end of
+    # the page (the "पछिल्ला अपडेट" sidebar), False if it was still cut short
+    # after the retries, None for files written before the check existed.
+
     annotator_notes: str = ""
     # ← NEW: flags issues found during scraping
     # "verdict_requires_manual_review" if verdict extraction failed
@@ -145,10 +154,20 @@ class NepFakeV2Example:
     # Where the verdict was read (config/settings.py LABEL_SOURCES):
     #   nfc_header / conclusion / conclusion_mixed / summary / stored /
     #   hand_checked
+    snapshot_conflict: bool = False
+    # True if another snapshot of the same article had a different label_fine
+    # (pipeline/deduplicator.py picks one copy by a fixed rule; the copy is
+    # used whole). Listed in logs/snapshot_report.json after each build.
+    snapshot_other_label: str = ""
+    # label_fine of the other snapshot(s), several joined with "|"; "" if none
     label_fine: str = ""
     # Fine label (schema 2.0): FALSE / MISLEADING / TRUE / UNVERIFIED / MIXED.
     # verdict_label stays the coarse label; see config/settings.py LABELS_FINE.
     in_main_benchmark: bool = False
+    benchmark_exclusion_reason: str = ""
+    # Why the row is not in the benchmark ("" if it is): label_<LABEL>,
+    # label_source_<SOURCE>, language_en, page_cut, several joined with "|"
+    # (pipeline/normalizer.py benchmark_reasons).
     # True if the row belongs to the main FALSE-vs-MISLEADING task:
     # label_fine is FALSE or MISLEADING, label_source is not in
     # BENCHMARK_EXCLUDED_SOURCES, and language is "ne".
@@ -203,8 +222,8 @@ def make_example_id(source_name: str, source_url: str) -> str:
 COLUMNS = [
     "example_id", "claim_text", "claim_source", "claimant", "claim_platform",
     "headline", "verdict_label", "verdict_label_text", "label_fine",
-    "label_source", "verified",
-    "in_main_benchmark", "evidence_text", "conclusion_text",
+    "label_source", "verified", "snapshot_conflict", "snapshot_other_label",
+    "in_main_benchmark", "benchmark_exclusion_reason", "evidence_text", "conclusion_text",
     "external_evidence_urls", "source_name", "source_type", "source_url",
     "date_published", "date_precision", "date_scraped", "language",
     "is_native_nepali", "label_basis", "topic_category", "annotator_notes",
@@ -218,6 +237,7 @@ def to_dict(example: NepFakeV2Example) -> dict:
     d["verdict_label"] = int(example.verdict_label)
     d["in_main_benchmark"] = bool(example.in_main_benchmark)
     d["is_native_nepali"] = bool(example.is_native_nepali)
+    d["snapshot_conflict"] = bool(example.snapshot_conflict)
     d["external_evidence_urls"] = " | ".join(example.external_evidence_urls)
     return d
 
@@ -241,7 +261,7 @@ def from_dict(d: dict) -> NepFakeV2Example:
     urls = _as_str(d.get("external_evidence_urls", ""))
     kw = {name: _as_str(d.get(name, "")) for name in COLUMNS
           if name not in ("verdict_label", "in_main_benchmark", "is_native_nepali",
-                          "external_evidence_urls")}
+                          "snapshot_conflict", "external_evidence_urls")}
     kw["topic_category"] = kw["topic_category"] or "other"
     kw["label_basis"] = kw["label_basis"] or "fact_checker_verdict"
     kw["schema_version"] = kw["schema_version"] or SCHEMA_VERSION
@@ -250,6 +270,7 @@ def from_dict(d: dict) -> NepFakeV2Example:
         verdict_label=int(d["verdict_label"]),
         in_main_benchmark=_as_bool(d.get("in_main_benchmark", False)),
         is_native_nepali=_as_bool(d.get("is_native_nepali", False)),
+        snapshot_conflict=_as_bool(d.get("snapshot_conflict", False)),
         external_evidence_urls=urls.split(" | ") if urls else [],
         **kw,
     )

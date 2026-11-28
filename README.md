@@ -116,6 +116,16 @@ See [Limitations](#limitations) on label imbalance.
 
 ---
 
+### Data contract
+
+- **Raw** (`raw/`): a faithful copy of each fetch, never edited afterwards.
+- **Normalized** (`data/nepfakev2.csv`): every row passes the written rules, and weaker rows are flagged (`verified`, `label_source`, `snapshot_conflict`).
+- **Excluded** (`data/excluded.csv`): every article left out, with a reason.
+- **Benchmark** (`in_main_benchmark`): a subset by a written rule, and every other row says why in `benchmark_exclusion_reason`.
+- **Count:** unique articles in raw = normalized + excluded, checked by a test on every run.
+
+Details and the exact reasons: [DATASHEET.md](DATASHEET.md), "Data contract".
+
 ## Schema (normalized layer)
 
 | Field | Type | Description |
@@ -131,7 +141,10 @@ See [Limitations](#limitations) on label imbalance.
 | `label_fine` | str | FALSE / MISLEADING / MIXED / TRUE / UNVERIFIED (see Labels) |
 | `label_source` | str | Where the verdict was read: `nfc_header`, `conclusion`, `conclusion_mixed`, `summary`, `stored` (scraper's badge only), `hand_checked` (a person read the article) |
 | `verified` | str | `gold`: a person checked the label (`label_source == "hand_checked"`). `silver`: read from the article by rules only. Score gold rows with `python -m pipeline.evaluate … --gold` |
+| `snapshot_conflict` | bool | `True` if another snapshot of the same article had a different `label_fine`. The copy used is chosen by a fixed rule (DATASHEET, "Redundancy") and used whole |
+| `snapshot_other_label` | str | `label_fine` of the other snapshot(s), several separated by a vertical bar; empty if none |
 | `in_main_benchmark` | bool | True if the row belongs to the main FALSE-vs-MISLEADING task |
+| `benchmark_exclusion_reason` | str | Why the row is not in the benchmark, empty if it is: `label_<LABEL>`, `label_source_stored`, `label_source_conclusion_mixed`, `language_en`, `page_cut` (several separated by a vertical bar) |
 | `evidence_text` | str | Article body without header, conclusion (TechPana `निष्कर्ष`, NepalFactCheck's `दावी / दावीकर्ता / तथ्य` summary box), footer, and without any sentence that states the verdict |
 | `conclusion_text` | str | The fact-checker's conclusion. **States the verdict: not a model input** |
 | `external_evidence_urls` | str | Links in the article, `" \| "`-separated, without share buttons and the outlet's own pages |
@@ -199,7 +212,7 @@ flowchart LR
 | 🗃 Raw articles scraped | **966** |
 | ✅ Normalized examples | **940** |
 | 📅 Date range | 2020-03-13 → 2026-11-20 |
-| 🕒 Last updated | 2026-11-28 03:40 UTC |
+| 🕒 Last updated | 2026-11-28 07:57 UTC |
 
 **Last run:** 2026-11-23 &nbsp;|&nbsp; ✓ TechPana: +1 new &nbsp;|&nbsp; ✓ NepalFactCheck: +4 new
 > **26 articles left out** (explainer 22, not_a_factcheck 4). Each is listed with its reason in `data/excluded.csv`.
@@ -269,7 +282,7 @@ Normalized examples went from 952 to 931 on the same raw data. If you used an ea
 - **`claim_text`**: on the 830 benchmark rows, 524 come from NepalFactCheck's summary box and 49 from its `के … हो?` headlines. The other 257 (all TechPana rows, mostly 2020 NepalFactCheck rows) are being checked by hand (`python -m pipeline.claims_reference sheet`, then `data_validation/claims_reference.csv`). Until that is done, treat `claim_caption` and the fallback sources as weaker. A 50-claim blind check per `claim_source` follows.
 - **Claim groups are a heuristic** (shared rare words within 30 days). The known cross-outlet pairs are grouped; some unrelated election claims are grouped too (one group has 38 rows), which is the safe direction.
 - **Splits are provisional** until they are frozen in `data/splits_v2.0.csv` (after the full re-scrape). Do not report numbers on provisional splits.
-- **Cross-source duplicates are kept intentionally** — the same claim may be fact-checked independently by both sources. These records are preserved as separate observations with their original provenance, since they represent independent verifications. Deduplication is URL-based (the newest snapshot of a URL wins). Rows about the same claim share `claim_group_id`, and the splits never separate a group.
+- **Cross-source duplicates are kept intentionally** — the same claim may be fact-checked independently by both sources. These records are preserved as separate observations with their original provenance, since they represent independent verifications. Deduplication is URL-based (the newest snapshot of a URL wins, unless the newer copy lost its verdict, its claim or most of its text; then the older one is kept). Rows about the same claim share `claim_group_id`, and the splits never separate a group.
 - **TechPana uses Cloudflare** — TechPana blocks datacenter IPs and is scraped via FlareSolverr in CI. See `.github/workflows/weekly_scrape.yml`.
 
 ---

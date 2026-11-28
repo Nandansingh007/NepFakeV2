@@ -128,6 +128,161 @@ def test_rescrape_does_not_flip_many_labels(normalized):
 
 
 # -----------------------------------------------------------------------------
+# Quality guard: a degraded newer snapshot does not replace a good older one
+# -----------------------------------------------------------------------------
+
+def _snap(scraped, label_source="conclusion", claim_source="claim_caption",
+          evidence="e" * 800, fine="FALSE", url="https://techpana.com/2026/1/a"):
+    ex = _ex(url, scraped, fine=fine)
+    ex.label_source, ex.claim_source, ex.evidence_text = label_source, claim_source, evidence
+    return ex
+
+
+@pytest.mark.parametrize("newer_kwargs, reason", [
+    ({"label_source": "stored"}, "label_source conclusion -> stored"),
+    ({"claim_source": "lead"}, "claim_source claim_caption -> lead"),
+    ({"evidence": "e" * 300}, "text 800 -> 300 chars"),
+])
+def test_degraded_newer_snapshot_keeps_older(newer_kwargs, reason):
+    from pipeline import deduplicator
+    old = _snap("2026-09-12")
+    new = _snap("2026-12-14", **newer_kwargs)
+    for order in ([old, new], [new, old]):
+        kept = deduplicator.deduplicate(order)
+        assert len(kept) == 1 and kept[0].date_scraped == "2026-09-12"
+        r = deduplicator.LAST_REPORT
+        assert r["replaced"] == 0 and r["label_changed"] == []
+        assert [c["reasons"] for c in r["kept_older"]] == [[reason]]
+
+
+def test_better_or_equal_newer_snapshot_replaces_older():
+    from pipeline import deduplicator
+    old = _snap("2026-09-12", label_source="stored", claim_source="lead", evidence="e" * 400)
+    new = _snap("2026-12-14", label_source="conclusion", evidence="e" * 390, fine="MISLEADING")
+    kept = deduplicator.deduplicate([old, new])
+    assert kept[0].date_scraped == "2026-12-14"
+    r = deduplicator.LAST_REPORT
+    assert r["kept_older"] == [] and r["replaced"] == 1 and len(r["label_changed"]) == 1
+
+
+def test_conflict_degraded_newer_with_weaker_label_keeps_older_whole():
+    # Rule 3: labels differ and the newer copy is degraded. The stronger
+    # label source wins (conclusion > stored); the whole copy is used.
+    from pipeline import deduplicator
+    old = _snap("2026-09-12", label_source="conclusion", fine="FALSE")
+    new = _snap("2026-12-14", label_source="stored", fine="MISLEADING", evidence="x" * 790)
+    (kept,) = deduplicator.deduplicate([new, old])
+    assert kept is old and kept.evidence_text == "e" * 800        # no field mixing
+    assert (kept.snapshot_conflict, kept.snapshot_other_label) == (True, "MISLEADING")
+    (c,) = deduplicator.LAST_REPORT["conflicts"]
+    assert c["kept"] == "older" and c["old_label"] == "FALSE" and c["new_label"] == "MISLEADING"
+    assert deduplicator.LAST_REPORT["label_changed"] == []        # never fails the flip gate
+
+
+def test_conflict_degraded_newer_with_stronger_label_wins():
+    # Old copy labelled by the badge only, new copy reads the conclusion but
+    # lost half its text: the new copy's label has stronger evidence.
+    from pipeline import deduplicator
+    old = _snap("2026-09-12", label_source="stored", fine="MISLEADING", evidence="e" * 800)
+    new = _snap("2026-12-14", label_source="conclusion", fine="FALSE", evidence="n" * 300)
+    (kept,) = deduplicator.deduplicate([old, new])
+    assert kept is new and kept.evidence_text == "n" * 300
+    assert (kept.snapshot_conflict, kept.snapshot_other_label) == (True, "MISLEADING")
+    assert deduplicator.LAST_REPORT["conflicts"][0]["kept"] == "newer"
+
+
+def test_conflict_equal_label_strength_keeps_newer():
+    from pipeline import deduplicator
+    old = _snap("2026-09-12", label_source="conclusion", claim_source="claim_caption", fine="FALSE")
+    new = _snap("2026-12-14", label_source="conclusion", claim_source="lead", fine="MISLEADING")
+    (kept,) = deduplicator.deduplicate([old, new])
+    assert kept is new and kept.snapshot_other_label == "FALSE"
+    assert "equal" in deduplicator.LAST_REPORT["conflicts"][0]["rule"]
+
+
+def test_plain_label_change_is_flagged_too():
+    # Rule 1: a complete newer copy wins; the row still says another
+    # snapshot disagreed, and the flip gate still counts it.
+    from pipeline import deduplicator
+    old = _snap("2026-09-12", fine="FALSE")
+    new = _snap("2026-12-14", fine="MISLEADING")
+    (kept,) = deduplicator.deduplicate([old, new])
+    assert kept is new and kept.snapshot_conflict and kept.snapshot_other_label == "FALSE"
+    assert len(deduplicator.LAST_REPORT["label_changed"]) == 1
+
+
+def test_same_label_snapshots_are_not_flagged():
+    from pipeline import deduplicator
+    (kept,) = deduplicator.deduplicate([_snap("2026-09-12"), _snap("2026-12-14")])
+    assert (kept.snapshot_conflict, kept.snapshot_other_label) == (False, "")
+    assert deduplicator.LAST_REPORT["conflicts"] == []
+
+
+def test_third_snapshot_is_compared_with_the_kept_copy():
+    from pipeline import deduplicator
+    good = _snap("2026-09-12")
+    bad = _snap("2026-12-14", label_source="stored")
+    good_again = _snap("2026-12-21")
+    kept = deduplicator.deduplicate([good, bad, good_again])
+    assert kept[0].date_scraped == "2026-12-21"
+    assert len(deduplicator.LAST_REPORT["kept_older"]) == 1
+
+
+def test_newer_snapshot_without_verdict_keeps_older(tmp_path, monkeypatch):
+    # The case from the first full re-scrape (29 TechPana pages without a
+    # verdict): the newer snapshot is excluded, the older row stays, and the
+    # case is reported instead of disappearing.
+    import json
+    from pipeline import normalizer
+    body = ("तथ्य जाँच\nसामाजिक सञ्जालमा एउटा भिडिओ भाइरल भएको छ जुन पुरानो हो।\n"
+            "दाबी\nक्याप्सनमा ‘यो भिडिओ हिजो काठमाडौंमा खिचिएको हो भन्दै धेरैले सेयर गरेका छन्’ लेखिएको छ।\n"
+            "निष्कर्ष\nयो दाबी भ्रामक हो।\n") * 3
+    rec = {"source_name": "techpana", "source_url": "https://techpana.com/2025/123456/x",
+           "title": "भिडिओबारे भ्रामक दाबी", "body_text": body, "raw_verdict_text": "भ्रामक",
+           "date_published": "2025-05-01"}
+    d = tmp_path / "techpana"
+    d.mkdir()
+    (d / "2026-09-12.json").write_text(json.dumps([rec], ensure_ascii=False), encoding="utf-8")
+    lost = {**rec, "body_text": body.replace("भ्रामक", ""), "raw_verdict_text": ""}
+    lost["title"] = "भिडिओबारे दाबी"
+    (d / "2026-12-14.json").write_text(json.dumps([lost], ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(normalizer, "RAW_DIRS", {"techpana": d})
+    # normalize_all() fills module-level lists that other tests read
+    monkeypatch.setattr(normalizer, "LAST_EXCLUSIONS", [])
+    monkeypatch.setattr(normalizer, "LAST_SHADOWED", [])
+    kept = normalizer.normalize_all(references={}, claims={})
+    assert [e.date_scraped for e in kept] == ["2026-09-12"]
+    assert normalizer.LAST_EXCLUSIONS == []
+    assert [(x["reason"], x["date_scraped"], x["kept_scraped"]) for x in normalizer.LAST_SHADOWED] \
+        == [("verdict_unmappable", "2026-12-14", "2026-09-12")]
+
+
+@pytest.mark.data
+def test_rescrape_did_not_degrade_many_articles():
+    # Gate for re-scrapes: the guard above keeps the older copy, so no data is
+    # lost, but if a large share of re-scraped articles came back worse (or
+    # without a verdict), the scraper is broken and the run should be looked
+    # at before it is committed. 20% per source; at least 5 always allowed.
+    # (The first full re-scrape had about 28 of ~280 TechPana pages without
+    # a verdict, so 10% would have been too tight to pass on a known case.)
+    from pipeline import deduplicator, normalizer
+    deduplicator.deduplicate(normalizer.normalize_all())   # fresh LAST_SHADOWED
+    r = deduplicator.LAST_REPORT
+    bad = {}
+    for case in r["kept_older"]:
+        bad[case["source_name"]] = bad.get(case["source_name"], 0) + 1
+    for x in normalizer.LAST_SHADOWED:
+        bad[x["source_name"]] = bad.get(x["source_name"], 0) + 1
+    if not r["rescraped"] and not bad:
+        pytest.skip("no URL has two snapshots yet")
+    for name, n in bad.items():
+        total = r["rescraped"].get(name, 0) + sum(
+            1 for x in normalizer.LAST_SHADOWED if x["source_name"] == name)
+        assert n <= max(5, 0.20 * total), (name, n, total, r["kept_older"][:5],
+                                           normalizer.LAST_SHADOWED[:5])
+
+
+# -----------------------------------------------------------------------------
 # save_raw: a fresh scrape on the same day replaces the earlier record
 # -----------------------------------------------------------------------------
 

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from config.settings import DATA_DIR
+from config.settings import DATA_DIR, LOGS_DIR
 
 ID_MAP_FILE = "id_map_v1_to_v2.csv"
 V1_ID = re.compile(r"^NF2_\d{8}_\d{4}$")
@@ -47,6 +47,28 @@ def write_id_map(old_csv: Path, examples, out_dir: Path) -> int:
     return len(m)
 
 
+SNAPSHOT_REPORT = LOGS_DIR / "snapshot_report.json"
+
+
+def write_snapshot_report(dedup_report: dict, shadowed: list, path: Path = None) -> Path:
+    """What happened between snapshots of the same URL, for a person to read
+    after a re-scrape (logs/ is uploaded as an artifact by the workflow and
+    is not committed)."""
+    import json
+    path = Path(path or SNAPSHOT_REPORT)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        "rescraped_urls": dedup_report.get("rescraped", {}),
+        "replaced": dedup_report.get("replaced", 0),
+        "label_changed": dedup_report.get("label_changed", []),
+        "label_conflicts": dedup_report.get("conflicts", []),
+        "kept_older_degraded": dedup_report.get("kept_older", []),
+        "kept_older_newer_excluded": shadowed,
+    }
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def build_dataset(out_dir=None, fixed_timestamp: str = None, update_readme: bool = True) -> dict:
     """normalize -> dedup -> splits -> export. Returns the stats dict."""
     from pipeline import deduplicator, normalizer
@@ -66,8 +88,13 @@ def build_dataset(out_dir=None, fixed_timestamp: str = None, update_readme: bool
         "after_dedup": len(deduped),
         "replaced_snapshots": deduplicator.LAST_REPORT.get("replaced", 0),
         "label_changed": len(deduplicator.LAST_REPORT.get("label_changed", [])),
+        "kept_older": len(deduplicator.LAST_REPORT.get("kept_older", [])),
+        "label_conflicts": len(deduplicator.LAST_REPORT.get("conflicts", [])),
+        "newer_excluded": len(normalizer.LAST_SHADOWED),
         "id_map_rows": mapped,
     }
+    if out_dir is None:
+        write_snapshot_report(deduplicator.LAST_REPORT, normalizer.LAST_SHADOWED)
     if update_readme and out_dir is None:
         from pipeline.update_readme import update_readme_stats
         stats["_build"]["readme_updated"] = update_readme_stats()
@@ -89,6 +116,12 @@ def main() -> None:
     print(f"excluded: {stats.get('excluded')}")
     print(f"newer snapshots replaced older ones: {b['replaced_snapshots']} "
           f"(label changed: {b['label_changed']})")
+    if b["label_conflicts"]:
+        print(f"snapshots disagree on the label: {b['label_conflicts']} "
+              f"(chosen by rule, column snapshot_conflict; see logs/snapshot_report.json)")
+    if b["kept_older"] or b["newer_excluded"]:
+        print(f"older snapshot kept instead: {b['kept_older']} newer copies degraded, "
+              f"{b['newer_excluded']} newer copies excluded (see logs/snapshot_report.json)")
     print(f"main benchmark: {stats.get('main_benchmark')}")
     print(f"claim_source: {stats.get('claim_source_distribution')}")
     print(f"split (time): {stats.get('split_distribution')}  "

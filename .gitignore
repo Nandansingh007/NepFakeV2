@@ -8,3 +8,4 @@ __pycache__/
 .coverage
 .pytest_cache/
 data_validation/claims_to_check.csv
+data_validation/labels_to_check.csv
