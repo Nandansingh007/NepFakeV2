@@ -32,6 +32,11 @@ REQUIRED_FILES = {
     "README.md":           BASE_DIR / "README_HF.md",   # dataset card
 }
 OPTIONAL_FILES = {
+    # Docs the card links to. Uploaded once by hand before 28 Nov 2026 and
+    # never refreshed, so the Hub DATASHEET was out of date.
+    "DATASHEET.md":                     BASE_DIR / "DATASHEET.md",
+    "VERSIONING.md":                    BASE_DIR / "VERSIONING.md",
+    "CITATION.cff":                     BASE_DIR / "CITATION.cff",
     "data/id_map_v1_to_v2.csv":         DATA_DIR / "id_map_v1_to_v2.csv",
     f"data/{Path(SPLIT_FILE).name}":     SPLIT_FILE,
     f"data/{Path(SPLIT_MANIFEST).name}": SPLIT_MANIFEST,

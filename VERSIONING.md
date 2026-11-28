@@ -26,7 +26,7 @@ rows on schema 2.0.
   ```python
   from datasets import load_dataset
   bench = load_dataset("Nandan007/NepFakeV2", "benchmark-v2.0", revision="v2.0")
-  # bench["train"], bench["validation"], bench["test"]: main-benchmark rows, time split
+  # bench["train"], bench["validation"], bench["test"]: main-benchmark rows, official split
   control = load_dataset("Nandan007/NepFakeV2", "benchmark-v2.0-random", revision="v2.0")
   ```
 
@@ -35,12 +35,10 @@ rows on schema 2.0.
 
 ## Reporting a score
 
-- Name the release and the split: "NepFakeV2 v2.0, time test split".
+- Name the release and the split: "NepFakeV2 v2.0, official test split".
 - **Official task, split and metric: not fixed yet.** They are fixed at the
-  v2.0 freeze and written here. Until then the candidate is macro-F1 over
-  FALSE and MISLEADING, reported on both `test.csv` (time split) and
-  `random_test.csv`, with the majority baseline. The label balance moves a
-  lot between years, so a time-split score alone mostly measures that shift.
+  v2.0 freeze and written here. Splits are provisional until the freeze; the official split and metric are not decided yet. Always report
+  the majority baseline next to a score.
 - Score with `python -m pipeline.evaluate predictions.csv` (add `--random`
   for the control split). It refuses predictions that do not cover exactly
   the release rows, and it prints the release name next to the score.

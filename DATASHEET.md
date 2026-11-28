@@ -1,7 +1,8 @@
 # NepFakeV2 datasheet (schema 2.0)
 
 Structured after "Datasheets for Datasets" (Gebru et al.). Numbers are for
-the 2026-11-23 data (940 rows); `data/stats.json` has the current ones.
+the 2026-11-28 full re-scrape (945 rows) unless a section says otherwise;
+`data/stats.json` has the current ones.
 
 ## Motivation
 
@@ -29,27 +30,24 @@ Four layers, each with one written rule, checked by `tests/test_data_contract.py
 
 ## Composition
 
-- **Instances.** One row = one fact-check article by TechPana (274) or
-  NepalFactCheck (666), from Mar 2020 to the latest weekly scrape.
+- **Instances.** One row = one fact-check article by TechPana (277) or
+  NepalFactCheck (668), from Mar 2020 to the latest weekly scrape.
 - **Labels.** The fact-checker's published verdict, not an annotator's
   opinion. Coarse `verdict_label` (REAL / FALSE_MISLEADING / UNVERIFIED) and
-  fine `label_fine` (28 Nov 2026: FALSE 353, MISLEADING 548, TRUE 17,
+  fine `label_fine` (FALSE 353, MISLEADING 549, TRUE 16,
   UNVERIFIED 27; no MIXED label since 28 Nov 2026). `label_source` says where each verdict was read.
-- **Main benchmark.** `in_main_benchmark`: 830 rows (319 FALSE, 511
-  MISLEADING). Left out: TRUE/UNVERIFIED (not the task), `stored` (badge only, until hand-checked), English rows (6).
+- **Main benchmark.** `in_main_benchmark`: 868 rows (338 FALSE, 530
+  MISLEADING). Left out: TRUE/UNVERIFIED (not the task), `stored` (badge only, until hand-checked), English rows (7), 1 page still cut short.
 - **Model inputs.** `claim_text` and `evidence_text`. `headline` and
   `conclusion_text` state the verdict and must not be inputs.
 - **Left out entirely.** `data/excluded.csv`: 22 NFC explainers, 4 TechPana
-  articles that are not fact-checks. An NFC article tagged both तथ्यजाँच
+  articles that are not fact-checks, 1 TechPana article with no verdict. An NFC article tagged both तथ्यजाँच
   and एक्सप्लेनर is a fact-check and is kept (1 so far).
-- **Splits.**
-  - `split` (time, by the earliest date in a claim group): train to
-    2024-12-31, dev 2025, test 2026 onwards. Benchmark rows: train 202 / 131,
-    dev 43 / 114, test 74 / 266 (FALSE / MISLEADING).
-  - `split_random`: claim groups hashed 70 / 10 / 20.
-  - Both are provisional until frozen (`python -m pipeline.splitter freeze`,
-    planned after the full re-scrape). After the freeze, `data/splits_v2.0.csv`
-    and its sha256 in the manifest fix the splits; new rows get `new`.
+- **Splits.** Splits are provisional until the freeze; the official split and metric are not decided yet. The columns `split` and
+  `split_random` hold provisional assignments that keep each claim group
+  together; they are not a published benchmark split. At the freeze
+  (`python -m pipeline.splitter freeze`), `data/splits_v2.0.csv` and its
+  sha256 in the manifest fix them, and new rows get `new`.
 - **Redundancy.** URL duplicates are removed: one row per article. When an article has several snapshots, one fixed rule picks the copy, and the chosen copy is used whole (fields are never mixed between snapshots):
   1. If the newer copy is not degraded, the newer copy is used. Degraded means a weaker label source, a claim from a fallback instead of the fact-checker's own text, or less than half the text.
   2. If the newer copy is degraded and both copies have the same label, the older (complete) copy is used.
@@ -75,7 +73,7 @@ the fact-check article. "Matches the article" is not "the fact-checker is
 right": only the hand check (`verified == "gold"`) speaks to that. Samples
 were read by one reader (an AI assistant, not a human annotator; seeds
 given), so the rates are rough and do not replace the human hand check.
-Coverage is on the 830 benchmark rows.
+Coverage and spot checks were measured on the 830 benchmark rows of the 2026-11-23 data (before the full re-scrape); they have not been re-measured on the 868 rows.
 
 | Field | Rule (NepalFactCheck / TechPana) | Coverage | Measured | Known failures |
 |---|---|---|---|---|
@@ -91,12 +89,14 @@ Coverage is on the 830 benchmark rows.
 
 ## Known problems (read before reporting results)
 
-1. **The label prior moves over time.** Benchmark FALSE share: 61% in train,
-   27% in dev, 22% in test. A model can look good on the time split by
-   tracking the base rate. Report the random split next to it, and report a
-   majority-class baseline per split.
+1. **The label prior moves over time.** Benchmark FALSE share by year of
+   publication: 73% in 2020, 53% in 2024, 30% in 2025, 23% in 2026. Any
+   split by date measures this shift as much as the task; report a
+   majority-class baseline next to every score.
 2. **Fact-checkers do not draw the FALSE / MISLEADING line consistently.**
-   23 TechPana conclusions name both; summary and conclusion disagree in 9.
+   13 TechPana conclusions name both, even in the sentence about the claim
+   (stored as MISLEADING, `label_source = conclusion_mixed`); summary and
+   conclusion disagree in 9.
    Treat inter-outlet disagreement as a ceiling on accuracy.
 3. **Text is cleaned by rules.** Verdict words are removed from
    `claim_text` and `evidence_text`, and a word counter is at the majority

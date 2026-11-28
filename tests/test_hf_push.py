@@ -47,3 +47,10 @@ def test_push_aborts_when_a_required_file_is_missing(monkeypatch, tmp_path):
     monkeypatch.setitem(hf_push.REQUIRED_FILES, "data/excluded.csv", tmp_path / "missing.csv")
     with pytest.raises(FileNotFoundError):
         hf_push.files_to_upload()
+
+
+def test_card_docs_are_uploaded():
+    # The card links to these; before 28 Nov 2026 the Hub copies were never refreshed
+    from pipeline.hf_push import files_to_upload
+    assert {"DATASHEET.md", "VERSIONING.md", "CITATION.cff"} <= set(files_to_upload())
+

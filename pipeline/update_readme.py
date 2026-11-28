@@ -194,13 +194,9 @@ def build_stats_block(stats: dict, raw_stats: dict) -> str:
         )
 
     # Splits (schema 2.0)
-    split_line = ""
-    if stats.get("split_distribution"):
-        frozen = "frozen" if "new" in stats["split_distribution"] or \
-            (DATA_DIR / "splits_v2.0.csv").exists() else "provisional until the freeze"
-        fmt = lambda d: ", ".join(f"{k} {v}" for k, v in d.items())
-        split_line = (f"Splits ({frozen}): time `split` {fmt(stats['split_distribution'])}; "
-                      f"random control `split_random` {fmt(stats.get('split_random_distribution', {}))}")
+    # No split counts are published before the freeze (decision 28 Nov 2026)
+    split_line = ("Splits are provisional until the freeze; the official split "
+                  "and metric are not decided yet.")
 
     block = f"""\
 <!-- STATS_START -->
